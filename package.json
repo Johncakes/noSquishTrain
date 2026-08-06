@@ -12,7 +12,9 @@
     "ingest": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/ingest.ts",
     "versions": "node --no-warnings=ExperimentalWarning src/versions.ts",
     "stats": "node --no-warnings=ExperimentalWarning src/stats.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "graph:check": "node --no-warnings=ExperimentalWarning src/graph-check.ts",
+    "route": "node --no-warnings=ExperimentalWarning src/route-cli.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
