@@ -14,7 +14,8 @@
     "stats": "node --no-warnings=ExperimentalWarning src/stats.ts",
     "typecheck": "tsc --noEmit",
     "graph:check": "node --no-warnings=ExperimentalWarning src/graph-check.ts",
-    "route": "node --no-warnings=ExperimentalWarning src/route-cli.ts"
+    "route": "node --no-warnings=ExperimentalWarning src/route-cli.ts",
+    "plan": "node --no-warnings=ExperimentalWarning src/plan-cli.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

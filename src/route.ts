@@ -14,9 +14,15 @@ export interface Leg {
   to: string;
   /** Station names traversed, inclusive of both ends. */
   stations: string[];
+  /** Platform keys traversed, parallel to `stations`. Used for scoring. */
+  keys: string[];
+  /** One 역번호 per hop (length = keys.length - 1): the row describing that departure. */
+  sourceNos: number[];
   stops: number;
   minutes: number;
   kind: 'ride' | 'transfer';
+  /** Minutes from the journey start at which this leg begins. */
+  offset: number;
 }
 
 export interface Route {
@@ -26,8 +32,14 @@ export interface Route {
   cost: number;
 }
 
-/** Cost of traversing `edge`, departing from `from`. Defaults to minutes. */
-export type CostFn = (edge: Edge, from: Node) => number;
+/**
+ * Cost of traversing `edge`, departing from `from` at `elapsed` minutes into
+ * the journey. Congestion varies by time of day, so the elapsed clock is part
+ * of the cost — this is a time-dependent shortest path. Dijkstra stays valid
+ * because every edge cost is positive and waiting can never make you arrive
+ * earlier.
+ */
+export type CostFn = (edge: Edge, from: Node, elapsed: number) => number;
 
 const byTime: CostFn = (edge) => edge.minutes;
 
@@ -74,7 +86,7 @@ export function findRoute(graph: Graph, originName: string, destName: string, co
 
     for (const edge of edgesFrom(graph, current)) {
       if (settled.has(edge.to)) continue;
-      const next = here.cost + cost(edge, from);
+      const next = here.cost + cost(edge, from, here.minutes);
       const known = best.get(edge.to);
       if (!known || next < known.cost) {
         best.set(edge.to, { cost: next, minutes: here.minutes + edge.minutes, via: { edge, from: current } });
@@ -100,6 +112,7 @@ export function findRoute(graph: Graph, originName: string, destName: string, co
 /** Collapse the edge chain into per-line legs. */
 function toRoute(graph: Graph, goal: string, chain: { edge: Edge; from: string }[], cost: number): Route {
   const legs: Leg[] = [];
+  let elapsed = 0;
 
   for (const { edge, from } of chain) {
     const fromNode = graph.nodes.get(from)!;
@@ -112,9 +125,13 @@ function toRoute(graph: Graph, goal: string, chain: { edge: Edge; from: string }
         from: fromNode.name,
         to: toNode.name,
         stations: [fromNode.name],
+        keys: [fromNode.key, toNode.key],
+        sourceNos: [],
         stops: 0,
         minutes: edge.minutes,
+        offset: elapsed,
       });
+      elapsed += edge.minutes;
       continue;
     }
 
@@ -122,6 +139,8 @@ function toRoute(graph: Graph, goal: string, chain: { edge: Edge; from: string }
     if (last?.kind === 'ride' && last.line === fromNode.line && last.direction === edge.direction) {
       last.to = toNode.station;
       last.stations.push(toNode.station);
+      last.keys.push(toNode.key);
+      last.sourceNos.push(edge.sourceStationNo ?? fromNode.stationNo);
       last.stops++;
       last.minutes += edge.minutes;
     } else {
@@ -132,10 +151,14 @@ function toRoute(graph: Graph, goal: string, chain: { edge: Edge; from: string }
         from: fromNode.station,
         to: toNode.station,
         stations: [fromNode.station, toNode.station],
+        keys: [fromNode.key, toNode.key],
+        sourceNos: [edge.sourceStationNo ?? fromNode.stationNo],
         stops: 1,
         minutes: edge.minutes,
+        offset: elapsed,
       });
     }
+    elapsed += edge.minutes;
   }
 
   return {

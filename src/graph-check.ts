@@ -176,6 +176,32 @@ section('6. hand-corrected adjacencies');
   }
 }
 
+// --- 7. no ride edge departs into an all-zero row -----------------------
+section('7. every ride departure has non-zero congestion somewhere');
+{
+  // If a train runs, some bucket somewhere must be above zero. An identically
+  // zero departure means the row describes a service that does not exist —
+  // i.e. the congestion is recorded under a different row. This is the check
+  // that catches a missing CONGESTION_SOURCE override, and it matters because
+  // a phantom 0% actively attracts routes toward it.
+  const peak = db.prepare('SELECT MAX(pct) AS m FROM congestion WHERE line=? AND station_no=? AND direction=?');
+  const bad = new Set<string>();
+  for (const [from, edges] of graph.adjacency) {
+    const node = graph.nodes.get(from)!;
+    for (const e of edges) {
+      if (e.kind !== 'ride') continue;
+      const stationNo = e.sourceStationNo ?? node.stationNo;
+      const row = peak.get(node.line, stationNo, e.direction!) as { m: number | null } | undefined;
+      if (!row || row.m === null || row.m === 0) {
+        const to = graph.nodes.get(e.to)!;
+        bad.add(`${node.line} ${node.station}(${stationNo}) ${e.direction} -> ${to.station} is always 0%`);
+      }
+    }
+  }
+  if (bad.size) [...bad].forEach(fail);
+  else console.log('  OK no ride edge reads an all-zero congestion row');
+}
+
 db.close();
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
 if (failures > 0) process.exitCode = 1;

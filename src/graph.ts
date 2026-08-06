@@ -9,9 +9,11 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 import {
+  CONGESTION_SOURCE,
   DEFAULT_DIRECTIONS,
   EXCLUDED_STATION_NOS,
   EXTRA_EDGES,
+  FORWARD_OVERRIDE,
   NON_ADJACENT,
   ONE_WAY,
   RIDE_MINUTES,
@@ -36,6 +38,12 @@ export interface Edge {
   minutes: number;
   /** For rides: the 상하구분 value to look congestion up under. */
   direction?: string;
+  /**
+   * 역번호 whose congestion row describes this departure. Differs from the
+   * node's own number where a platform serves two services (see
+   * CONGESTION_SOURCE).
+   */
+  sourceStationNo?: number;
 }
 
 export interface Graph {
@@ -103,14 +111,18 @@ export function buildGraph(db: DatabaseSync): Graph {
     const { forward, backward } = directionsFor(line);
     const cuts = new Set((NON_ADJACENT[line] ?? []).map(([a, b]) => `${a}-${b}`));
     const oneWays = new Set((ONE_WAY[line] ?? []).map(([a, b]) => `${a}-${b}`));
+    const overrides = new Map((FORWARD_OVERRIDE[line] ?? []).map((o) => [`${o.a}-${o.b}`, o.forward]));
 
     nodes.sort((x, y) => x.stationNo - y.stationNo);
     for (let i = 1; i < nodes.length; i++) {
       const prev = nodes[i - 1];
       const cur = nodes[i];
       if (cur.stationNo - prev.stationNo !== 1) continue;
-      if (cuts.has(`${prev.stationNo}-${cur.stationNo}`)) continue;
-      addRide(graph, prev, cur, forward, backward, oneWays.has(`${prev.stationNo}-${cur.stationNo}`));
+      const pair = `${prev.stationNo}-${cur.stationNo}`;
+      if (cuts.has(pair)) continue;
+      const fwd = overrides.get(pair) ?? forward;
+      const bwd = fwd === forward ? backward : forward;
+      addRide(graph, prev, cur, fwd, bwd, oneWays.has(pair));
     }
   }
 
@@ -127,6 +139,17 @@ export function buildGraph(db: DatabaseSync): Graph {
       const fwd = extra.forward ?? forward;
       const bwd = fwd === forward ? backward : forward;
       addRide(graph, a, b, fwd, bwd, extra.oneWay === true);
+    }
+  }
+
+  // --- congestion row overrides ------------------------------------------
+  for (const [line, sources] of Object.entries(CONGESTION_SOURCE)) {
+    for (const src of sources) {
+      const from = nodeKey(line, src.from);
+      const to = nodeKey(line, src.to);
+      const edge = edgesFrom(graph, from).find((e) => e.to === to && e.kind === 'ride');
+      if (!edge) throw new Error(`CONGESTION_SOURCE ${line} ${src.from}->${src.to}: no such ride edge (${src.note})`);
+      edge.sourceStationNo = src.stationNo;
     }
   }
 

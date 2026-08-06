@@ -38,10 +38,10 @@ export function directionsFor(line: string): DirectionLabels {
 }
 
 /**
- * Rows that are branch-service markers rather than distinct stations. They
- * duplicate a real station under a synthetic 9xxx number to carry congestion
- * for a shuttle direction. Excluded from the graph; their congestion is still
- * in the DB if a later scoring pass wants it.
+ * Rows that are not distinct stations: they duplicate a real station under a
+ * synthetic 9xxx number to carry congestion for a *second service* at that
+ * platform. They are not graph nodes, but their congestion is essential —
+ * see CONGESTION_SOURCE.
  */
 export const EXCLUDED_STATION_NOS: Record<string, number[]> = {
   '2호선': [9001, 9002, 9003],
@@ -78,6 +78,26 @@ export const NON_ADJACENT: Record<string, [number, number][]> = {
   ],
   '6호선': [
     [2616, 2617], // 구산 -> 새절: the 응암순환 loop passes through 응암 between them
+  ],
+};
+
+/**
+ * Consecutively-numbered pairs that ARE adjacent, but whose direction label
+ * runs against numeric order. Distinct from NON_ADJACENT, which means there
+ * is no track at all.
+ */
+export interface ForwardOverride {
+  a: number;
+  b: number;
+  forward: string;
+  note: string;
+}
+
+export const FORWARD_OVERRIDE: Record<string, ForwardOverride[]> = {
+  '2호선': [
+    // On the 성수지선 the whole branch counts 외선 toward 신설동, so this hop
+    // is 외선 even though 244 -> 245 increases.
+    { a: 244, b: 245, forward: '외선', note: '용답 -> 신답, 성수지선' },
   ],
 };
 
@@ -124,10 +144,13 @@ export const EXTRA_EDGES: Record<string, ExtraEdge[]> = {
   ],
   '2호선': [
     { a: 243, b: 201, note: '충정로 -> 시청, closes the main loop' },
-    // 성수지선: 성수 -> 용답 -> 신답 -> 용두 -> 신설동
-    { a: 211, b: 244, note: '성수 -> 용답, 성수지선 junction' },
-    { a: 245, b: 250, note: '신답 -> 용두' },
-    { a: 250, b: 246, note: '용두 -> 신설동' },
+    // 성수지선: 성수 -> 용답 -> 신답 -> 용두 -> 신설동.
+    // Travel toward 신설동 is 외선, toward 성수 is 내선 — proven by 신설동
+    // being a terminus whose only departure is 내선 (48.4%), with congestion
+    // rising 48 -> 55 -> 66 -> 75 toward 성수 as commuters join the main loop.
+    { a: 211, b: 244, note: '성수 -> 용답, 성수지선 junction', forward: '외선' },
+    { a: 245, b: 250, note: '신답 -> 용두', forward: '외선' },
+    { a: 250, b: 246, note: '용두 -> 신설동', forward: '외선' },
     // 신정지선: 신도림 -> 도림천 -> 양천구청 -> 신정네거리 -> 까치산
     { a: 234, b: 247, note: '신도림 -> 도림천, 신정지선 junction' },
     { a: 249, b: 260, note: '신정네거리 -> 까치산' },
@@ -151,6 +174,42 @@ export const EXTRA_EDGES: Record<string, ExtraEdge[]> = {
 export function baseName(station: string): string {
   return station.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
+
+/**
+ * Where a departure's congestion actually lives, when it is not on the
+ * station's own row.
+ *
+ * A station serving two services has its second service recorded under a
+ * synthetic 9xxx row, leaving the main row at 0 for that direction. Reading
+ * the main row would report an empty train and make the leg look ideal — the
+ * single most dangerous failure mode for a crowding-aware planner, because it
+ * is invisible and it actively attracts routes.
+ *
+ * Established by matching each synthetic row against its neighbours:
+ * 성수E 외선 (34.4) sits between 뚝섬 (35.8) and 건대입구 (35.1), so it is the
+ * main loop; 성수 9002 외선 (18.9) matches the branch (15-17), so it is the
+ * shuttle.
+ */
+export interface CongestionSource {
+  from: number;
+  to: number;
+  stationNo: number;
+  note: string;
+}
+
+export const CONGESTION_SOURCE: Record<string, CongestionSource[]> = {
+  '2호선': [
+    { from: 211, to: 210, stationNo: 9001, note: '성수E = main-loop 외선 at 성수' },
+    { from: 211, to: 244, stationNo: 9002, note: '성수 = 성수지선 shuttle toward 용답' },
+    { from: 234, to: 247, stationNo: 9003, note: '신도림 = 신정지선 shuttle toward 도림천' },
+  ],
+  '5호선': [
+    { from: 2549, to: 2555, stationNo: 9005, note: '강동(마천) = departure toward 둔촌동' },
+  ],
+  '6호선': [
+    { from: 2611, to: 2612, stationNo: 9006, note: '응암S = 응암순환 loop departure' },
+  ],
+};
 
 /** Minutes assumed per station hop. The dataset carries no timetable. */
 export const RIDE_MINUTES = 2;
