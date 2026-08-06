@@ -7,13 +7,11 @@
  */
 import { openDb } from './db.ts';
 import { buildGraph, findStation } from './graph.ts';
-import { findRoute } from './route.ts';
 import {
   formatTime, isOutsideService, loadCongestion, nearestBucket, normalizeDayType, parseTime,
 } from './congestion.ts';
-import {
-  badge, makeCostFn, routeSignature, scoreRoute, type ScoreContext, type ScoredRoute,
-} from './score.ts';
+import { badge } from './score.ts';
+import { planTrip } from './plan.ts';
 
 const [origin, dest, dayTypeArg = '평일', timeArg = '08:00'] = process.argv.slice(2);
 if (!origin || !dest) {
@@ -41,40 +39,15 @@ if (isOutsideService(startMinutes)) {
   console.log(`note: outside service hours; using the ${formatTime(nearestBucket(startMinutes))} bucket.`);
 }
 
-/** Same trip, three attitudes to crowding. */
-const PROFILES: { name: string; aversion: number }[] = [
-  { name: 'fastest', aversion: 0 },
-  { name: 'balanced', aversion: 1 },
-  { name: 'least crowded', aversion: 3 },
-];
+const options = planTrip(graph, lookup, origin, dest, dayType, startMinutes);
 
-const seen = new Map<string, { names: string[]; route: ScoredRoute }>();
-
-for (const profile of PROFILES) {
-  const ctx: ScoreContext = { graph, lookup, dayType, startMinutes, aversion: profile.aversion };
-  const found = findRoute(graph, origin, dest, makeCostFn(ctx));
-  if (!found) continue;
-
-  // Always report congestion on the default curve, so options stay comparable
-  // even though each was *searched* under a different weighting.
-  const reporting: ScoreContext = { ...ctx, aversion: 1 };
-  const scored = scoreRoute(reporting, found);
-
-  const sig = routeSignature(found);
-  const existing = seen.get(sig);
-  if (existing) existing.names.push(profile.name);
-  else seen.set(sig, { names: [profile.name], route: scored });
-}
-
-if (seen.size === 0) {
+if (options.length === 0) {
   console.log('\nNo route found.');
   db.close();
   process.exit(0);
 }
 
-const options = [...seen.values()].sort((a, b) => a.route.perceivedMinutes - b.route.perceivedMinutes);
-
-for (const { names, route } of options) {
+for (const { profiles: names, route } of options) {
   console.log(`\n── ${names.join(' / ')}`);
   console.log(
     `   ${route.totalMinutes} min` +
