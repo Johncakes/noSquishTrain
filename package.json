@@ -1,0 +1,21 @@
+{
+  "name": "nosquishtrain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Seoul subway congestion-aware route planner",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "seed": "node --no-warnings=ExperimentalWarning src/seed-csv.ts",
+    "ingest": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/ingest.ts",
+    "versions": "node --no-warnings=ExperimentalWarning src/versions.ts",
+    "stats": "node --no-warnings=ExperimentalWarning src/stats.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "5.9"
+  }
+}
