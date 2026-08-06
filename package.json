@@ -17,7 +17,8 @@
     "route": "node --no-warnings=ExperimentalWarning src/route-cli.ts",
     "plan": "node --no-warnings=ExperimentalWarning src/plan-cli.ts",
     "sweep": "node --no-warnings=ExperimentalWarning src/sweep-cli.ts",
-    "serve": "node --no-warnings=ExperimentalWarning src/server.ts"
+    "serve": "node --no-warnings=ExperimentalWarning src/server.ts",
+    "journey": "node --no-warnings=ExperimentalWarning src/journey-cli.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
