@@ -1,12 +1,27 @@
 /*
  * Roles, not raw hex, so light and dark swap in one place.
  *
- * The five band colours are a single-hue blue ramp (magnitude, so sequential),
- * validated with the dataviz ordinal checks against each mode's own surface:
- * monotone lightness, adjacent dL >= 0.06, and the step nearest the surface
- * still clearing 2:1. The dark column is not an inversion of the light one —
- * it is the same hue re-stepped for a dark surface, with the anchor flipped so
- * "empty" recedes toward the background in both modes.
+ * CONGESTION RAMP — single-hue red (OKLCH hue 27), light to dark. Congestion
+ * means bad, so it wears a warm scale rather than the neutral default: the
+ * colour and the semantics point the same way.
+ *
+ * Generated in OKLCH at even lightness steps, then validated: monotone
+ * lightness and adjacent dL >= 0.06 in both modes, hue spread 3 degrees.
+ *
+ * It deliberately FAILS the ordinal light-end contrast check — band 0 sits at
+ * 1.05:1 on the light surface, because "여유 is white" is the point. An
+ * invisible dot would be indistinguishable from no station at all, so every
+ * dot carries a hairline outline (--dot-edge, 3.5:1) as the relief channel.
+ * That outline also draws the diameter between the two halves, which is what
+ * makes the split dot readable. The table view is the second relief channel.
+ *
+ * The dark column is not an inversion — same hue re-stepped for the dark
+ * surface, anchor flipped so "empty" recedes toward the background in both.
+ *
+ * LINE COLOURS are the official 서울교통공사 palette, a second colour system
+ * doing a different job (identity, on the track) from the ramp (magnitude, on
+ * the dots). They are kept thin and semi-transparent so they read as reference
+ * geometry and never compete with a dot for attention.
  */
 :root {
   color-scheme: light;
@@ -18,16 +33,26 @@
   --border: rgba(11, 11, 11, 0.10);
   --grid: #e1e0d9;
 
-  /* congestion ramp — blue 250/350/450/550/650 */
-  --band-0: #86b6ef;
-  --band-1: #5598e7;
-  --band-2: #2a78d6;
-  --band-3: #1c5cab;
-  --band-4: #104281;
+  /* congestion ramp — white to red */
+  --band-0: #fff4f2;
+  --band-1: #ffcbc4;
+  --band-2: #ff9387;
+  --band-3: #eb5249;
+  --band-4: #b91c1e;
 
-  --track: #d5d4cc;
-  --no-data: #898781;
+  --dot-edge: #898781;
+  --no-data: #c3c2b7;
   --focus: #2a78d6;
+  --track-opacity: 0.55;
+
+  --line-1: #0052a4;
+  --line-2: #00a84d;
+  --line-3: #ef7c1c;
+  --line-4: #00a5de;
+  --line-5: #996cac;
+  --line-6: #cd7c2f;
+  --line-7: #747f00;
+  --line-8: #e6186c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -41,16 +66,26 @@
     --border: rgba(255, 255, 255, 0.10);
     --grid: #2c2c2a;
 
-    /* blue 600/500/400/300/200 — anchor flipped: empty is darkest */
-    --band-0: #184f95;
-    --band-1: #256abf;
-    --band-2: #3987e5;
-    --band-3: #6da7ec;
-    --band-4: #9ec5f4;
+    /* same hue re-stepped for the dark surface, anchor flipped */
+    --band-0: #462622;
+    --band-1: #852f29;
+    --band-2: #c33530;
+    --band-3: #f0574e;
+    --band-4: #ff9387;
 
-    --track: #303030;
-    --no-data: #898781;
+    --dot-edge: #898781;
+    --no-data: #5a5954;
     --focus: #3987e5;
+    --track-opacity: 0.75;
+
+    --line-1: #4a8bd0;
+    --line-2: #2fc46f;
+    --line-3: #f5964a;
+    --line-4: #3cc0e8;
+    --line-5: #b48cc4;
+    --line-6: #de9a5a;
+    --line-7: #a3b03c;
+    --line-8: #f0508e;
   }
 }
 
@@ -63,14 +98,23 @@
   --text-muted: #898781;
   --border: rgba(255, 255, 255, 0.10);
   --grid: #2c2c2a;
-  --band-0: #184f95;
-  --band-1: #256abf;
-  --band-2: #3987e5;
-  --band-3: #6da7ec;
-  --band-4: #9ec5f4;
-  --track: #303030;
-  --no-data: #898781;
+  --band-0: #462622;
+  --band-1: #852f29;
+  --band-2: #c33530;
+  --band-3: #f0574e;
+  --band-4: #ff9387;
+  --dot-edge: #898781;
+  --no-data: #5a5954;
   --focus: #3987e5;
+  --track-opacity: 0.75;
+  --line-1: #4a8bd0;
+  --line-2: #2fc46f;
+  --line-3: #f5964a;
+  --line-4: #3cc0e8;
+  --line-5: #b48cc4;
+  --line-6: #de9a5a;
+  --line-7: #a3b03c;
+  --line-8: #f0508e;
 }
 
 * { box-sizing: border-box; }
@@ -162,8 +206,8 @@ button:hover, select:hover { border-color: var(--text-muted); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 button[aria-pressed="true"] {
-  background: var(--band-2);
-  border-color: var(--band-2);
+  background: var(--focus);
+  border-color: var(--focus);
   color: #ffffff;
 }
 
@@ -186,7 +230,8 @@ button[aria-pressed="true"] {
 
 .timeline input[type="range"] {
   flex: 1;
-  accent-color: var(--band-2);
+  /* Chrome, not data — a ramp colour here made the unfilled track render black. */
+  accent-color: var(--focus);
   min-width: 160px;
 }
 
@@ -220,11 +265,23 @@ button[aria-pressed="true"] {
 #map { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
 #map.panning { cursor: grabbing; }
 
-.track { stroke: var(--track); stroke-width: 1.6; fill: none; stroke-linecap: round; }
+/* Track wears line identity; kept thin and translucent so it stays reference
+   geometry rather than competing with the dots for attention. */
+.track { stroke-width: 1.8; fill: none; stroke-linecap: round; opacity: var(--track-opacity); }
+.track-1 { stroke: var(--line-1); }
+.track-2 { stroke: var(--line-2); }
+.track-3 { stroke: var(--line-3); }
+.track-4 { stroke: var(--line-4); }
+.track-5 { stroke: var(--line-5); }
+.track-6 { stroke: var(--line-6); }
+.track-7 { stroke: var(--line-7); }
+.track-8 { stroke: var(--line-8); }
 
-/* The dot halves are painted; the hit circle above them takes the pointer. */
-.half { stroke: var(--surface-1); stroke-width: 0.6; pointer-events: none; }
-.half-empty { fill: none; stroke: var(--track); stroke-width: 0.8; pointer-events: none; }
+/* The dot halves are painted; the hit circle above them takes the pointer.
+   The outline is load-bearing: it keeps a white "여유" dot visible and draws
+   the divider that separates 상행 from 하행. */
+.half { stroke: var(--dot-edge); stroke-width: 0.7; pointer-events: none; }
+.half-empty { fill: none; stroke: var(--dot-edge); stroke-width: 0.7; stroke-dasharray: 1.4 1.4; pointer-events: none; }
 .hit { fill: transparent; cursor: pointer; }
 .station-ring { fill: none; stroke: var(--text-primary); stroke-width: 1.6; pointer-events: none; }
 
@@ -305,7 +362,7 @@ button[aria-pressed="true"] {
   gap: 3px;
 }
 
-.ramp-swatch { width: 46px; height: 12px; border-radius: 2px; }
+.ramp-swatch { width: 46px; height: 12px; border-radius: 2px; border: 1px solid var(--dot-edge); }
 .ramp-label { color: var(--text-secondary); white-space: nowrap; }
 .ramp-bound { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 

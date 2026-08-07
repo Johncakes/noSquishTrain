@@ -5,8 +5,12 @@
  * which half of the dot it is — so neither can be left to be inferred.
  */
 import { BANDS, SCALE_MAX } from '../shared/scale.ts';
+import type { DirectionMode } from './map.ts';
 
-export function renderLegend(container: HTMLElement): void {
+/** How each direction slot is labelled, matching the network's sort order. */
+export const DIRECTION_LABELS = ['상행 · 외선', '하행 · 내선'] as const;
+
+export function renderLegend(container: HTMLElement, mode: DirectionMode): void {
   container.replaceChildren();
 
   const ramp = document.createElement('div');
@@ -45,27 +49,30 @@ export function renderLegend(container: HTMLElement): void {
   const noData = document.createElement('span');
   noData.className = 'legend-key';
   noData.innerHTML =
-    '<svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="var(--no-data)"></circle></svg>' +
-    '<span>no measurement</span>';
-
-  // Direction key, drawn as the same split dot the map uses.
-  const split = document.createElement('span');
-  split.className = 'legend-key';
-  split.innerHTML =
     '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
-    '<path d="M 0,-6 A 6,6 0 0,0 0,6 Z" fill="var(--band-1)"></path>' +
-    '<path d="M 0,-6 A 6,6 0 0,1 0,6 Z" fill="var(--band-3)"></path>' +
-    '</svg>' +
-    '<span>left half 상선·외선 &nbsp;/&nbsp; right half 하선·내선</span>';
+    '<circle cx="0" cy="0" r="6" fill="var(--no-data)" stroke="var(--dot-edge)" stroke-width="0.9"></circle>' +
+    '</svg><span>no measurement</span>';
+
+  // Direction key, drawn as the same dot the map is currently using.
+  const direction = document.createElement('span');
+  direction.className = 'legend-key';
+  direction.innerHTML =
+    mode === 'both'
+      ? '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
+        '<path d="M 0,-6 A 6,6 0 0,0 0,6 Z" fill="var(--band-1)" stroke="var(--dot-edge)" stroke-width="0.9"></path>' +
+        '<path d="M 0,-6 A 6,6 0 0,1 0,6 Z" fill="var(--band-3)" stroke="var(--dot-edge)" stroke-width="0.9"></path>' +
+        '</svg>' +
+        `<span>left half ${DIRECTION_LABELS[0]} &nbsp;/&nbsp; right half ${DIRECTION_LABELS[1]}</span>`
+      : '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
+        '<circle cx="0" cy="0" r="6" fill="var(--band-3)" stroke="var(--dot-edge)" stroke-width="0.9"></circle>' +
+        `</svg><span>whole dot = ${DIRECTION_LABELS[mode]}</span>`;
 
   const oneWay = document.createElement('span');
   oneWay.className = 'legend-key';
   oneWay.innerHTML =
     '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
-    '<path d="M 0,-6 A 6,6 0 0,0 0,6 Z" fill="none" stroke="var(--track)" stroke-width="1.2"></path>' +
-    '<path d="M 0,-6 A 6,6 0 0,1 0,6 Z" fill="var(--band-2)"></path>' +
-    '</svg>' +
-    '<span>outline = no service that way</span>';
+    '<circle cx="0" cy="0" r="6" fill="none" stroke="var(--dot-edge)" stroke-width="0.9" stroke-dasharray="1.8 1.8"></circle>' +
+    '</svg><span>dashed = no service that way</span>';
 
-  container.append(ramp, split, noData, oneWay);
+  container.append(ramp, direction, noData, oneWay);
 }

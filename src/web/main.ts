@@ -6,7 +6,7 @@
  */
 import { DAY_TYPES, bandColorVar, bandLabel, formatClock, type DayType } from '../shared/scale.ts';
 import type { CongestionPayload, NetworkPayload } from '../shared/types.ts';
-import { createMap, type MapView } from './map.ts';
+import { createMap, type DirectionMode, type MapView } from './map.ts';
 import { createTimeline } from './timeline.ts';
 import { renderLegend } from './legend.ts';
 
@@ -41,7 +41,6 @@ async function boot(): Promise<void> {
   };
 
   const map: MapView = createMap($<SVGSVGElement>('map'), network);
-  renderLegend($('legend'));
 
   const daySelect = $<HTMLSelectElement>('day');
   for (const day of DAY_TYPES) {
@@ -61,6 +60,7 @@ async function boot(): Promise<void> {
 
   let current = await loadDay('평일');
   let lineFilter: string | null = null;
+  let directionMode: DirectionMode = 'both';
 
   const timeline = createTimeline(
     $<HTMLInputElement>('slider'),
@@ -72,13 +72,17 @@ async function boot(): Promise<void> {
   const tooltip = $('tooltip');
   let hoveredIndex: number | null = null;
 
-  /** Worst reading on screen right now, so the headline follows the filter. */
+  /**
+   * Worst reading currently on screen. It follows both filters — reporting a
+   * 하행 peak while the map shows 상행 would describe something not drawn.
+   */
   function describePeak(bucketIndex: number): string {
     let worst = -1;
     let where = '';
     network.platforms.forEach((platform, i) => {
       if (lineFilter !== null && platform.line !== lineFilter) return;
       current.values[i]?.forEach((series, d) => {
+        if (directionMode !== 'both' && d !== directionMode) return;
         const pct = series[bucketIndex];
         if (pct !== null && pct !== undefined && pct > worst) {
           worst = pct;
@@ -151,7 +155,7 @@ async function boot(): Promise<void> {
 
   function repaint(): void {
     const bucket = timeline.index();
-    map.paint(current.values, bucket);
+    map.paint(current.values, bucket, directionMode);
     $('peak-note').textContent = describePeak(bucket);
     if (!$('table-wrap').hidden) renderTable(bucket);
     // Keep an open tooltip truthful while the time moves under it.
@@ -167,6 +171,13 @@ async function boot(): Promise<void> {
     statusEl.textContent = 'loading…';
     current = await loadDay(daySelect.value as DayType);
     statusEl.textContent = '';
+    repaint();
+  });
+
+  const directionSelect = $<HTMLSelectElement>('direction');
+  directionSelect.addEventListener('change', () => {
+    directionMode = directionSelect.value === 'both' ? 'both' : (Number(directionSelect.value) as 0 | 1);
+    renderLegend($('legend'), directionMode);
     repaint();
   });
 
@@ -188,6 +199,8 @@ async function boot(): Promise<void> {
   $('zoom-in').addEventListener('click', () => map.zoomBy(1.4));
   $('zoom-out').addEventListener('click', () => map.zoomBy(1 / 1.4));
   $('zoom-reset').addEventListener('click', () => map.resetZoom());
+
+  renderLegend($('legend'), directionMode);
 
   // Start at the morning peak: it is the reason to look at this at all.
   const eightAM = network.buckets.indexOf(480);

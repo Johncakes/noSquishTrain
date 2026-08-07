@@ -6,10 +6,15 @@
  * timeline responsive while dragging and lets the animation run without
  * rebuilding any geometry.
  *
- * Each station is one dot split down the middle — left half is the
+ * In 양방향 mode each station is one dot split down the middle — left half the
  * decreasing-역번호 direction (상선/외선), right half the increasing one
- * (하선/내선). The two halves peak at opposite times of day, which is the whole
- * point of showing them together.
+ * (하선/내선), because the two peak at opposite times of day. Picking a single
+ * direction fills the whole dot instead: comparing across the network is much
+ * easier when the eye does not have to average two halves.
+ *
+ * Track carries the official line colours. That is a second colour system
+ * alongside the congestion ramp, so it is deliberately thin and translucent —
+ * identity for orientation, never magnitude.
  */
 import { bandColorVar } from '../shared/scale.ts';
 import type { NetworkPayload } from '../shared/types.ts';
@@ -40,9 +45,16 @@ export interface StationHover {
   clientY: number;
 }
 
+/**
+ * Which direction the dots show. 'both' splits each dot in half; a single
+ * direction fills the whole dot, which is far easier to read when comparing
+ * across the network.
+ */
+export type DirectionMode = 'both' | 0 | 1;
+
 export interface MapView {
   /** Repaint every dot for one time bucket. */
-  paint(values: (number | null)[][][], bucketIndex: number): void;
+  paint(values: (number | null)[][][], bucketIndex: number, mode: DirectionMode): void;
   /** Restrict to one line, or show everything when null. */
   setLineFilter(line: string | null): void;
   onHover(handler: (hover: StationHover | null) => void): void;
@@ -87,43 +99,34 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
     node.setAttribute('y1', String(py(segment.a) + ay));
     node.setAttribute('x2', String(px(segment.b) + bx));
     node.setAttribute('y2', String(py(segment.b) + by));
-    node.setAttribute('class', 'track');
+    // '3호선' -> track-3, so the official line colour comes from CSS.
+    node.setAttribute('class', `track track-${segment.line.replace('호선', '')}`);
     trackLayer.append(node);
     trackEls.push({ line: segment.line, node });
   }
 
   // --- station dots ------------------------------------------------------
-  /** halves[platformIndex][directionIndex] — the elements repainted per frame. */
-  const halves: SVGPathElement[][] = [];
+  //
+  // Both halves always exist. Which direction each shows depends on the mode,
+  // so the geometry never has to be rebuilt when the mode changes.
+  const halves: [SVGPathElement, SVGPathElement][] = [];
   const groups: SVGGElement[] = [];
   const hits: SVGCircleElement[] = [];
 
-  network.platforms.forEach((platform, i) => {
+  network.platforms.forEach((_platform, i) => {
     const [dx, dy] = fan(i);
     const group = el('g');
     group.setAttribute('transform', `translate(${px(i) + dx}, ${py(i) + dy})`);
 
-    const sides: ('left' | 'right')[] = ['left', 'right'];
-    const own: SVGPathElement[] = [];
-
-    for (const [slot, side] of sides.entries()) {
-      const path = el('path');
-      path.setAttribute('d', halfDiscPath(DOT_R, side));
-      if (platform.directions[slot]) {
-        path.setAttribute('class', 'half');
-        own.push(path);
-      } else {
-        // No service this way at all — 응암순환 runs one direction only. An
-        // outline says "nothing runs here", which is not the same as a
-        // measurement that is missing.
-        path.setAttribute('class', 'half-empty');
-      }
-      group.append(path);
-    }
+    const left = el('path');
+    left.setAttribute('d', halfDiscPath(DOT_R, 'left'));
+    const right = el('path');
+    right.setAttribute('d', halfDiscPath(DOT_R, 'right'));
+    group.append(left, right);
 
     dotLayer.append(group);
     groups.push(group);
-    halves.push(own);
+    halves.push([left, right]);
 
     const hit = el('circle');
     hit.setAttribute('cx', String(px(i) + dx));
@@ -136,21 +139,51 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
   });
 
   // --- painting ----------------------------------------------------------
-  function paint(values: (number | null)[][][], bucketIndex: number): void {
+
+  /**
+   * Paint one half. `served` false means no train runs that way at all — a
+   * dashed outline, which is not the same as a measurement that is missing
+   * (that is a filled grey dot).
+   */
+  function setHalf(path: SVGPathElement, served: boolean, pct: number | null): void {
+    if (!served) {
+      path.setAttribute('class', 'half-empty');
+      path.removeAttribute('fill');
+      return;
+    }
+    path.setAttribute('class', 'half');
+    path.setAttribute('fill', bandColorVar(pct));
+  }
+
+  function paint(values: (number | null)[][][], bucketIndex: number, mode: DirectionMode): void {
     for (let i = 0; i < halves.length; i++) {
+      const platform = network.platforms[i];
       const perDirection = values[i];
-      const nodes = halves[i];
-      for (let d = 0; d < nodes.length; d++) {
-        const pct = perDirection?.[d]?.[bucketIndex] ?? null;
-        nodes[d].setAttribute('fill', bandColorVar(pct));
+      const [left, right] = halves[i];
+
+      if (mode === 'both') {
+        for (const [slot, path] of ([left, right] as const).entries()) {
+          const served = platform.directions[slot] !== undefined;
+          setHalf(path, served, perDirection?.[slot]?.[bucketIndex] ?? null);
+        }
+        continue;
       }
+
+      // One direction: fill the whole dot with it, so a station reads as a
+      // single value instead of asking the eye to average two halves.
+      const served = platform.directions[mode] !== undefined;
+      const pct = perDirection?.[mode]?.[bucketIndex] ?? null;
+      setHalf(left, served, pct);
+      setHalf(right, served, pct);
     }
   }
 
   // --- line filter -------------------------------------------------------
   function setLineFilter(line: string | null): void {
     for (const t of trackEls) {
-      t.node.style.opacity = line === null || t.line === line ? '1' : '0.12';
+      // Empty string, not '1' — the track's resting opacity is set in CSS and
+      // an inline '1' would override it and make every line fully saturated.
+      t.node.style.opacity = line === null || t.line === line ? '' : '0.1';
     }
     network.platforms.forEach((platform, i) => {
       const dim = line !== null && platform.line !== line;
