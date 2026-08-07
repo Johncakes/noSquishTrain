@@ -4,11 +4,11 @@
  * State is three values — time bucket, day type, line filter. Everything on
  * screen is a function of those, which is why this needs no framework.
  */
-import { DAY_TYPES, bandColorVar, bandLabel, formatClock, type DayType } from '../shared/scale.ts';
+import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, type DayType } from '../shared/scale.ts';
 import type { CongestionPayload, NetworkPayload } from '../shared/types.ts';
 import { createMap, type DirectionMode, type MapView } from './map.ts';
 import { createTimeline } from './timeline.ts';
-import { renderLegend } from './legend.ts';
+import { DIRECTION_SLOT_LABELS, renderLegend } from './legend.ts';
 
 const $ = <T extends Element = HTMLElement>(id: string): T => {
   const node = document.getElementById(id);
@@ -50,6 +50,17 @@ async function boot(): Promise<void> {
     daySelect.append(option);
   }
 
+  // Built from BANDS rather than hard-coded in the HTML, so the options can
+  // never drift from the thresholds the colours actually use.
+  const thresholdSelect = $<HTMLSelectElement>('threshold');
+  BANDS.forEach((band, i) => {
+    if (i === 0) return; // "0% 이상" is every station — that is the 전체 option
+    const option = document.createElement('option');
+    option.value = String(i);
+    option.textContent = i === BANDS.length - 1 ? band.label : `${band.label} 이상`;
+    thresholdSelect.append(option);
+  });
+
   const lineSelect = $<HTMLSelectElement>('line');
   for (const line of network.lines) {
     const option = document.createElement('option');
@@ -61,6 +72,8 @@ async function boot(): Promise<void> {
   let current = await loadDay('평일');
   let lineFilter: string | null = null;
   let directionMode: DirectionMode = 'both';
+  /** Band index to emphasise, or null for "show every reading solid". */
+  let threshold: number | null = null;
 
   const timeline = createTimeline(
     $<HTMLInputElement>('slider'),
@@ -72,25 +85,40 @@ async function boot(): Promise<void> {
   const tooltip = $('tooltip');
   let hoveredIndex: number | null = null;
 
+  /** Does this reading pass the current threshold? */
+  const matches = (pct: number | null | undefined): boolean =>
+    pct !== null && pct !== undefined && (threshold === null || bandIndex(pct) >= threshold);
+
   /**
-   * Worst reading currently on screen. It follows both filters — reporting a
-   * 하행 peak while the map shows 상행 would describe something not drawn.
+   * Worst reading currently on screen, and how many pass the threshold. Both
+   * follow every filter — reporting a 하행 peak while the map shows 상행 would
+   * describe something not drawn.
    */
   function describePeak(bucketIndex: number): string {
     let worst = -1;
     let where = '';
+    let hits = 0;
+
     network.platforms.forEach((platform, i) => {
       if (lineFilter !== null && platform.line !== lineFilter) return;
       current.values[i]?.forEach((series, d) => {
         if (directionMode !== 'both' && d !== directionMode) return;
-        const pct = series[bucketIndex];
+        const pct = series?.[bucketIndex];
+        if (matches(pct)) hits++;
         if (pct !== null && pct !== undefined && pct > worst) {
           worst = pct;
           where = `${platform.name} ${platform.line} ${platform.directions[d]?.direction ?? ''}`;
         }
       });
     });
-    return worst < 0 ? 'no readings' : `busiest now: ${where} at ${worst.toFixed(0)}%`;
+
+    if (worst < 0) return 'no readings';
+    const peak = `busiest now: ${where} at ${worst.toFixed(0)}%`;
+    // With a threshold set, the count is the actual answer to "how bad is it
+    // right now" — one worst station says nothing about how widespread it is.
+    return threshold === null
+      ? peak
+      : `${hits} platform${hits === 1 ? '' : 's'} at ${BANDS[threshold].label}${threshold === BANDS.length - 1 ? '' : ' 이상'} · ${peak}`;
   }
 
   function renderTable(bucketIndex: number): void {
@@ -98,37 +126,48 @@ async function boot(): Promise<void> {
     const rows: string[] = [];
     network.platforms.forEach((platform, i) => {
       if (lineFilter !== null && platform.line !== lineFilter) return;
+
+      // The table is the map's twin, so it filters on the same rule — a row
+      // here should mean a solid dot there.
+      const shown = [0, 1].filter((d) => directionMode === 'both' || d === directionMode);
+      if (threshold !== null && !shown.some((d) => matches(current.values[i]?.[d]?.[bucketIndex]))) return;
+
       const cells = [0, 1].map((d) => {
         const direction = platform.directions[d];
         if (!direction) return '<td class="none">—</td><td class="none">no service</td>';
         const pct = current.values[i]?.[d]?.[bucketIndex] ?? null;
         return pct === null
           ? '<td class="none">—</td><td class="none">no data</td>'
-          : `<td class="num">${pct.toFixed(1)}%</td><td>${direction.direction} ${bandLabel(pct)}</td>`;
+          : `<td class="num">${pct.toFixed(1)}%</td><td>${direction!.direction} ${bandLabel(pct)}</td>`;
       });
       rows.push(`<tr><th scope="row">${platform.name}</th><td>${platform.line}</td>${cells.join('')}</tr>`);
     });
     body.innerHTML = rows.join('');
     $('table-caption').textContent =
       `Readings at ${formatClock(network.buckets[bucketIndex])}, ${daySelect.value}` +
-      (lineFilter ? ` — ${lineFilter}` : '') + ` (${rows.length} platforms)`;
+      (lineFilter ? ` — ${lineFilter}` : '') +
+      (threshold === null ? '' : ` — ${BANDS[threshold].label} 이상만`) +
+      ` (${rows.length} platforms)`;
   }
 
   function showTooltip(index: number, clientX: number, clientY: number): void {
     const platform = network.platforms[index];
     const bucket = timeline.index();
 
+    // Both slots always appear, so a terminus reads as "nothing runs that way"
+    // rather than silently showing one direction and leaving you to guess
+    // which. DIRECTION_SLOT_LABELS names the side even when it is empty.
     const rows = platform.directions.map((direction, d) => {
+      if (!direction) {
+        return `<dt><span class="swatch swatch-none">✕</span></dt><dd class="pct">—</dd>` +
+          `<dd class="band">${DIRECTION_SLOT_LABELS[d]} · no service</dd>`;
+      }
       const pct = current.values[index]?.[d]?.[bucket] ?? null;
       const swatch = `<span class="swatch" style="background:${bandColorVar(pct)}"></span>`;
       const value = pct === null ? '—' : `${pct.toFixed(1)}%`;
       const label = pct === null ? 'no data' : bandLabel(pct);
       return `<dt>${swatch}</dt><dd class="pct">${value}</dd><dd class="band">${direction.direction} → ${direction.toward} · ${label}</dd>`;
     });
-
-    if (platform.directions.length < 2) {
-      rows.push('<dt></dt><dd class="pct">—</dd><dd class="band">one-way section</dd>');
-    }
 
     tooltip.innerHTML =
       `<div class="tt-title">${platform.station} <span class="tt-line">${platform.line}</span></div>` +
@@ -155,7 +194,7 @@ async function boot(): Promise<void> {
 
   function repaint(): void {
     const bucket = timeline.index();
-    map.paint(current.values, bucket, directionMode);
+    map.paint(current.values, bucket, directionMode, threshold);
     $('peak-note').textContent = describePeak(bucket);
     if (!$('table-wrap').hidden) renderTable(bucket);
     // Keep an open tooltip truthful while the time moves under it.
@@ -177,7 +216,13 @@ async function boot(): Promise<void> {
   const directionSelect = $<HTMLSelectElement>('direction');
   directionSelect.addEventListener('change', () => {
     directionMode = directionSelect.value === 'both' ? 'both' : (Number(directionSelect.value) as 0 | 1);
-    renderLegend($('legend'), directionMode);
+    renderLegend($('legend'), directionMode, threshold);
+    repaint();
+  });
+
+  thresholdSelect.addEventListener('change', () => {
+    threshold = thresholdSelect.value === 'all' ? null : Number(thresholdSelect.value);
+    renderLegend($('legend'), directionMode, threshold);
     repaint();
   });
 
@@ -200,7 +245,7 @@ async function boot(): Promise<void> {
   $('zoom-out').addEventListener('click', () => map.zoomBy(1 / 1.4));
   $('zoom-reset').addEventListener('click', () => map.resetZoom());
 
-  renderLegend($('legend'), directionMode);
+  renderLegend($('legend'), directionMode, threshold);
 
   // Start at the morning peak: it is the reason to look at this at all.
   const eightAM = network.buckets.indexOf(480);

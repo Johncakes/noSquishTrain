@@ -12,11 +12,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { openDb, getMeta } from '../data/db.ts';
 import { loadCoords } from '../data/coords.ts';
-import { buildNetwork } from '../domain/network.ts';
+import { buildNetwork, slotOf, type Departure } from '../domain/network.ts';
 import { buildProjection, placePlatforms } from '../domain/geo.ts';
 import { loadCongestion } from '../domain/congestion.ts';
 import { BUCKETS, DAY_TYPES, type DayType } from '../shared/scale.ts';
-import type { CongestionPayload, NetworkPayload, WirePlatform, WireSegment } from '../shared/types.ts';
+import type { CongestionPayload, DirectionSeries, NetworkPayload, WirePlatform, WireSegment } from '../shared/types.ts';
 
 const PORT = Number(process.env.PORT ?? 8137);
 const WEB_DIR = join(import.meta.dirname, '..', 'web');
@@ -42,8 +42,24 @@ const placed = placePlatforms(network, coords, projection).sort(
 );
 const indexOfKey = new Map(placed.map((p, i) => [p.key, i]));
 
-/** Direction rows per platform, resolved once — the map reads them every frame. */
-const departures = placed.map((p) => network.departures(p.key));
+/**
+ * Departures per platform, placed in their fixed display slot rather than
+ * packed into a list. Two platforms serving one direction each — 방화 (하선)
+ * and 오금 (상선) — would otherwise both occupy slot 0 and be drawn as if they
+ * ran the same way.
+ */
+const departures = placed.map((p) => {
+  const slots: [Departure | null, Departure | null] = [null, null];
+  for (const d of network.departures(p.key)) {
+    const slot = slotOf(d.direction);
+    if (slots[slot]) {
+      throw new Error(`${p.line} ${p.station}: two departures in slot ${slot} (${slots[slot]!.direction}, ${d.direction})`);
+    }
+    slots[slot] = d;
+  }
+  if (!slots[0] && !slots[1]) throw new Error(`${p.line} ${p.station}: no departures at all`);
+  return slots;
+});
 
 const platforms: WirePlatform[] = placed.map((p, i) => ({
   key: p.key,
@@ -54,7 +70,10 @@ const platforms: WirePlatform[] = placed.map((p, i) => ({
   y: p.y,
   shared: p.shared,
   slot: p.slot,
-  directions: departures[i].map((d) => ({ direction: d.direction, toward: d.towardName })),
+  directions: [
+    departures[i][0] && { direction: departures[i][0]!.direction, toward: departures[i][0]!.towardName },
+    departures[i][1] && { direction: departures[i][1]!.direction, toward: departures[i][1]!.towardName },
+  ],
 }));
 
 const segments: WireSegment[] = network.segments
@@ -85,9 +104,11 @@ const networkPayload: NetworkPayload = {
  */
 const congestionByDay = new Map<DayType, string>();
 for (const dayType of DAY_TYPES) {
-  const values: (number | null)[][][] = placed.map((p, i) =>
-    departures[i].map((d) => BUCKETS.map((bucket) => lookup.at(p.line, d.stationNo, d.direction, dayType, bucket))),
-  );
+  const values: DirectionSeries[] = placed.map((p, i) => {
+    const series = (d: Departure | null) =>
+      d === null ? null : BUCKETS.map((bucket) => lookup.at(p.line, d.stationNo, d.direction, dayType, bucket));
+    return [series(departures[i][0]), series(departures[i][1])];
+  });
   const payload: CongestionPayload = { dayType, values };
   congestionByDay.set(dayType, JSON.stringify(payload));
 }

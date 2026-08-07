@@ -7,10 +7,13 @@
 import { BANDS, SCALE_MAX } from '../shared/scale.ts';
 import type { DirectionMode } from './map.ts';
 
-/** How each direction slot is labelled, matching the network's sort order. */
-export const DIRECTION_LABELS = ['상행 · 외선', '하행 · 내선'] as const;
+/**
+ * How each direction slot is labelled. Index matches WirePlatform.directions:
+ * 0 is the decreasing-역번호 side, 1 the increasing one.
+ */
+export const DIRECTION_SLOT_LABELS = ['상행 · 외선', '하행 · 내선'] as const;
 
-export function renderLegend(container: HTMLElement, mode: DirectionMode): void {
+export function renderLegend(container: HTMLElement, mode: DirectionMode, threshold: number | null): void {
   container.replaceChildren();
 
   const ramp = document.createElement('div');
@@ -62,17 +65,28 @@ export function renderLegend(container: HTMLElement, mode: DirectionMode): void 
         '<path d="M 0,-6 A 6,6 0 0,0 0,6 Z" fill="var(--band-1)" stroke="var(--dot-edge)" stroke-width="0.9"></path>' +
         '<path d="M 0,-6 A 6,6 0 0,1 0,6 Z" fill="var(--band-3)" stroke="var(--dot-edge)" stroke-width="0.9"></path>' +
         '</svg>' +
-        `<span>left half ${DIRECTION_LABELS[0]} &nbsp;/&nbsp; right half ${DIRECTION_LABELS[1]}</span>`
+        `<span>left half ${DIRECTION_SLOT_LABELS[0]} &nbsp;/&nbsp; right half ${DIRECTION_SLOT_LABELS[1]}</span>`
       : '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
         '<circle cx="0" cy="0" r="6" fill="var(--band-3)" stroke="var(--dot-edge)" stroke-width="0.9"></circle>' +
-        `</svg><span>whole dot = ${DIRECTION_LABELS[mode]}</span>`;
+        `</svg><span>whole dot = ${DIRECTION_SLOT_LABELS[mode]}</span>`;
 
-  const oneWay = document.createElement('span');
-  oneWay.className = 'legend-key';
-  oneWay.innerHTML =
+  const noService = document.createElement('span');
+  noService.className = 'legend-key';
+  noService.innerHTML =
     '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
-    '<circle cx="0" cy="0" r="6" fill="none" stroke="var(--dot-edge)" stroke-width="0.9" stroke-dasharray="1.8 1.8"></circle>' +
-    '</svg><span>dashed = no service that way</span>';
+    '<path d="M -4.3,-4.3 L 4.3,4.3 M -4.3,4.3 L 4.3,-4.3" fill="none" stroke="var(--dot-edge)" stroke-width="1.4" stroke-linecap="round"></path>' +
+    '</svg><span>no service that way</span>';
 
-  container.append(ramp, direction, noData, oneWay);
+  container.append(ramp, direction, noData, noService);
+
+  // Only meaningful while something is being filtered out.
+  if (threshold !== null) {
+    const below = document.createElement('span');
+    below.className = 'legend-key';
+    below.innerHTML =
+      '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
+      '<circle cx="0" cy="0" r="6" fill="none" stroke="var(--dot-edge)" stroke-width="0.9" stroke-dasharray="1.8 1.8"></circle>' +
+      `</svg><span>dashed = below ${BANDS[threshold].label}</span>`;
+    container.append(below);
+  }
 }

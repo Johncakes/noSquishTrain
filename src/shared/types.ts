@@ -20,8 +20,13 @@ export interface WirePlatform {
   /** Platforms sharing this exact point, and this one's index among them. */
   shared: number;
   slot: number;
-  /** Directions served here, in display order. */
-  directions: WireDirection[];
+  /**
+   * Exactly two slots: [0] is 상행 (상선/외선), [1] is 하행 (하선/내선).
+   * Null where no train runs that way — a terminus, or the one-way 응암순환.
+   * Fixed slots, never a packed list: at a terminus the only direction present
+   * must still land in its own slot or it will be read as the other one.
+   */
+  directions: [WireDirection | null, WireDirection | null];
 }
 
 export interface WireDirection {
@@ -51,10 +56,15 @@ export interface NetworkPayload {
 }
 
 /**
- * Readings for one day type: `values[platformIndex][directionIndex][bucket]`.
- * Null means the dataset has no row — which is never the same as zero.
+ * Readings for one day type: `values[platformIndex][slot][bucket]`, with slot
+ * matching WirePlatform.directions.
+ *
+ * A null series means no service in that direction; a null inside a series
+ * means no published measurement. Neither is ever zero.
  */
+export type DirectionSeries = [(number | null)[] | null, (number | null)[] | null];
+
 export interface CongestionPayload {
   dayType: DayType;
-  values: (number | null)[][][];
+  values: DirectionSeries[];
 }

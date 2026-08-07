@@ -82,6 +82,26 @@ const hopKey = (line: string, from: number, to: number) => `${line}|${from}-${to
  */
 const DIRECTION_ORDER = ['상선', '외선', '하선', '내선'];
 
+/**
+ * Fixed display slot per direction label: 0 is the decreasing-역번호 side
+ * (상행), 1 the increasing one (하행).
+ *
+ * This must be a lookup, never a position in a sorted list. A terminus serves
+ * exactly one direction, so "first direction present" puts 방화's 하선 in slot
+ * 0 and 오금's 상선 in slot 0 too — and anything reading slot 0 as 상행 then
+ * shows one of them the wrong number while claiming the other has no service.
+ */
+export const DIRECTION_SLOT: Record<string, 0 | 1> = {
+  상선: 0, 외선: 0,
+  하선: 1, 내선: 1,
+};
+
+export function slotOf(direction: string): 0 | 1 {
+  const slot = DIRECTION_SLOT[direction];
+  if (slot === undefined) throw new Error(`Unknown 상하구분 '${direction}' — no display slot for it`);
+  return slot;
+}
+
 export function buildNetwork(db: DatabaseSync): Network {
   const rows = db
     .prepare('SELECT DISTINCT line, station_no, station FROM congestion ORDER BY line, station_no')

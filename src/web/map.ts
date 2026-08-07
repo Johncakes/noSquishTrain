@@ -6,9 +6,11 @@
  * responsive while dragging and lets the animation run without rebuilding any
  * geometry.
  *
- * In 양방향 mode each station is one dot split down the middle — left half the
- * decreasing-역번호 direction (상선/외선), right half the increasing one
- * (하선/내선), because the two peak at opposite times of day. Picking a single
+ * In 양방향 mode each station is one dot split down the middle — left half is
+ * always slot 0 (상행: 상선/외선), right half always slot 1 (하행: 하선/내선),
+ * because the two peak at opposite times of day. The slots are fixed by the
+ * server, so a terminus that serves only one direction still lands on the
+ * correct side rather than defaulting to the left. Picking a single
  * direction fills the whole dot instead: comparing across the network is much
  * easier when the eye does not have to average two halves.
  *
@@ -16,8 +18,8 @@
  * alongside the congestion ramp, so it is deliberately thin and translucent —
  * identity for orientation, never magnitude.
  */
-import { bandColorVar } from '../shared/scale.ts';
-import type { NetworkPayload } from '../shared/types.ts';
+import { bandColorVar, bandIndex } from '../shared/scale.ts';
+import type { DirectionSeries, NetworkPayload } from '../shared/types.ts';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -39,6 +41,26 @@ function halfDiscPath(r: number, side: 'left' | 'right'): string {
   return `M 0,${-r} A ${r},${r} 0 0,${sweep} 0,${r} Z`;
 }
 
+/**
+ * An X marking a direction no train runs — a terminus, or the one-way
+ * 응암순환. Structural absence, distinct from a missing measurement (grey) and
+ * from a reading below the chosen threshold (dashed).
+ *
+ * `where` is 'full' when the whole station has no service in the current view,
+ * or a half when only one direction is missing. At most one half can be
+ * unserved: every platform has at least one departure, which `npm run check`
+ * enforces.
+ */
+function crossPath(r: number, where: 'full' | 'left' | 'right'): string {
+  if (where === 'full') {
+    const a = r * 0.72;
+    return `M ${-a},${-a} L ${a},${a} M ${-a},${a} L ${a},${-a}`;
+  }
+  const cx = where === 'left' ? -r * 0.44 : r * 0.44;
+  const s = r * 0.38;
+  return `M ${cx - s},${-s} L ${cx + s},${s} M ${cx - s},${s} L ${cx + s},${-s}`;
+}
+
 export interface StationHover {
   platformIndex: number;
   clientX: number;
@@ -53,8 +75,19 @@ export interface StationHover {
 export type DirectionMode = 'both' | 0 | 1;
 
 export interface MapView {
-  /** Repaint every dot for one time bucket. */
-  paint(values: (number | null)[][][], bucketIndex: number, mode: DirectionMode): void;
+  /**
+   * Repaint every dot for one time bucket.
+   *
+   * `threshold` is a band index; readings below it are drawn as a dashed
+   * outline so the ones you asked about stand out against the network. Null
+   * shows every reading solid.
+   */
+  paint(
+    values: DirectionSeries[],
+    bucketIndex: number,
+    mode: DirectionMode,
+    threshold: number | null,
+  ): void;
   /** Restrict to one line, or show everything when null. */
   setLineFilter(line: string | null): void;
   onHover(handler: (hover: StationHover | null) => void): void;
@@ -112,7 +145,12 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
   // twice, leaving a line down the middle of what should be one solid dot —
   // so a single direction gets a real <circle> rather than two halves painted
   // the same colour. Both are built once; switching mode only toggles display.
-  const dots: { left: SVGPathElement; right: SVGPathElement; full: SVGCircleElement }[] = [];
+  const dots: {
+    left: SVGPathElement;
+    right: SVGPathElement;
+    full: SVGCircleElement;
+    cross: SVGPathElement;
+  }[] = [];
   const groups: SVGGElement[] = [];
   const hits: SVGCircleElement[] = [];
 
@@ -130,11 +168,15 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
     full.setAttribute('r', String(DOT_R));
     full.style.display = 'none';
 
-    group.append(left, right, full);
+    const cross = el('path');
+    cross.setAttribute('class', 'dot-x');
+    cross.style.display = 'none';
+
+    group.append(left, right, full, cross);
 
     dotLayer.append(group);
     groups.push(group);
-    dots.push({ left, right, full });
+    dots.push({ left, right, full, cross });
 
     const hit = el('circle');
     hit.setAttribute('cx', String(px(i) + dx));
@@ -149,43 +191,76 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
   // --- painting ----------------------------------------------------------
 
   /**
-   * Paint one mark. `served` false means no train runs that way at all — a
-   * dashed outline, which is not the same as a measurement that is missing
-   * (that is a filled grey dot).
+   * Paint one mark for a direction that is actually served.
+   *
+   * Three outcomes, all distinct on purpose: a reading at or above the
+   * threshold is solid in its band colour; a reading below it is a dashed
+   * outline; a direction with no published measurement is a filled grey dot,
+   * because "nobody counted" is not "quiet".
    */
-  function setMark(node: SVGElement, served: boolean, pct: number | null): void {
-    if (!served) {
-      node.setAttribute('class', 'half-empty');
+  function setMark(node: SVGElement, pct: number | null, threshold: number | null): void {
+    if (pct === null) {
+      node.setAttribute('class', 'dot-nodata');
+      node.setAttribute('fill', 'var(--no-data)');
+      return;
+    }
+    if (threshold !== null && bandIndex(pct) < threshold) {
+      node.setAttribute('class', 'dot-below');
       node.removeAttribute('fill');
       return;
     }
-    node.setAttribute('class', 'half');
+    node.setAttribute('class', 'dot-on');
     node.setAttribute('fill', bandColorVar(pct));
   }
 
-  function paint(values: (number | null)[][][], bucketIndex: number, mode: DirectionMode): void {
+  function paint(
+    values: DirectionSeries[],
+    bucketIndex: number,
+    mode: DirectionMode,
+    threshold: number | null,
+  ): void {
     const both = mode === 'both';
 
     for (let i = 0; i < dots.length; i++) {
       const platform = network.platforms[i];
       const perDirection = values[i];
-      const { left, right, full } = dots[i];
-
-      left.style.display = both ? '' : 'none';
-      right.style.display = both ? '' : 'none';
-      full.style.display = both ? 'none' : '';
+      const { left, right, full, cross } = dots[i];
 
       if (both) {
+        full.style.display = 'none';
+
         for (const [slot, path] of ([left, right] as const).entries()) {
-          const served = platform.directions[slot] !== undefined;
-          setMark(path, served, perDirection?.[slot]?.[bucketIndex] ?? null);
+          if (!platform.directions[slot]) {
+            path.style.display = 'none';
+            continue;
+          }
+          path.style.display = '';
+          setMark(path, perDirection?.[slot]?.[bucketIndex] ?? null, threshold);
         }
+
+        // Half an X where the missing direction would have been.
+        const missing = !platform.directions[0] ? 'left'
+          : !platform.directions[1] ? 'right' : null;
+        cross.style.display = missing ? '' : 'none';
+        if (missing) cross.setAttribute('d', crossPath(DOT_R, missing));
         continue;
       }
 
       // One direction: one solid circle, so a station reads as a single value
       // instead of asking the eye to average two halves.
-      setMark(full, platform.directions[mode] !== undefined, perDirection?.[mode]?.[bucketIndex] ?? null);
+      left.style.display = 'none';
+      right.style.display = 'none';
+
+      if (!platform.directions[mode]) {
+        full.style.display = 'none';
+        cross.style.display = '';
+        cross.setAttribute('d', crossPath(DOT_R, 'full'));
+        continue;
+      }
+
+      full.style.display = '';
+      cross.style.display = 'none';
+      setMark(full, perDirection?.[mode]?.[bucketIndex] ?? null, threshold);
     }
   }
 

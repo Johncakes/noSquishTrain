@@ -331,20 +331,38 @@ button[aria-pressed="true"] {
   stroke: var(--line-8);
 }
 
-/* The dot halves are painted; the hit circle above them takes the pointer.
-   The outline is load-bearing: it keeps a white "여유" dot visible and draws
-   the divider that separates 상행 from 하행. */
-.half {
+/* Four station states, deliberately distinct.
+   The outline on .dot-on is load-bearing: it keeps a white "여유" dot visible
+   and draws the divider that separates 상행 from 하행 in 양방향. */
+.dot-on {
   stroke: var(--dot-edge);
   stroke-width: 0.7;
   pointer-events: none;
 }
 
-.half-empty {
+/* Real reading, below the threshold you asked to see. */
+.dot-below {
   fill: none;
   stroke: var(--dot-edge);
   stroke-width: 0.7;
   stroke-dasharray: 1.4 1.4;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* Nobody counted here. Filled, because it is a station — just not a number. */
+.dot-nodata {
+  stroke: var(--dot-edge);
+  stroke-width: 0.7;
+  pointer-events: none;
+}
+
+/* No train runs this way: a terminus, or the one-way 응암순환. */
+.dot-x {
+  fill: none;
+  stroke: var(--dot-edge);
+  stroke-width: 1;
+  stroke-linecap: round;
   pointer-events: none;
 }
 
@@ -425,6 +443,15 @@ button[aria-pressed="true"] {
   height: 10px;
   border-radius: 2px;
   display: inline-block;
+  border: 1px solid var(--dot-edge);
+}
+
+#tooltip .swatch-none {
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 10px;
+  text-align: center;
 }
 
 #tooltip .pct {
@@ -545,7 +572,10 @@ footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .half {
+  .dot-on,
+  .dot-below,
+  .dot-nodata,
+  .dot-x {
     transition: none;
   }
 }
