@@ -16,7 +16,8 @@ import { buildNetwork, slotOf, type Departure } from '../domain/network.ts';
 import { buildProjection, placePlatforms } from '../domain/geo.ts';
 import { loadCongestion } from '../domain/congestion.ts';
 import { BUCKETS, DAY_TYPES, type DayType } from '../shared/scale.ts';
-import type { CongestionPayload, DirectionSeries, NetworkPayload, WirePlatform, WireSegment } from '../shared/types.ts';
+import { SERVICE_SLOTS } from '../shared/types.ts';
+import type { CongestionPayload, DirectionSeries, NetworkPayload, ServiceSeries, WirePlatform, WireSegment } from '../shared/types.ts';
 
 const PORT = Number(process.env.PORT ?? 8137);
 const WEB_DIR = join(import.meta.dirname, '..', 'web');
@@ -86,6 +87,7 @@ const segments: WireSegment[] = network.segments
 
 const networkPayload: NetworkPayload = {
   quarter: lookup.quarter,
+  line9Period: getMeta(db, 'line9_period'),
   coordsVersion: getMeta(db, 'coords_version'),
   aspect: projection.aspect,
   lines: network.lines,
@@ -105,9 +107,16 @@ const networkPayload: NetworkPayload = {
 const congestionByDay = new Map<DayType, string>();
 for (const dayType of DAY_TYPES) {
   const values: DirectionSeries[] = placed.map((p, i) => {
-    const series = (d: Departure | null) =>
-      d === null ? null : BUCKETS.map((bucket) => lookup.at(p.line, d.stationNo, d.direction, dayType, bucket));
-    return [series(departures[i][0]), series(departures[i][1])];
+    const forDirection = (d: Departure | null): ServiceSeries | null => {
+      if (d === null) return null;
+      const present = new Set(lookup.servicesAt(p.line, d.stationNo, d.direction));
+      return SERVICE_SLOTS.map((service) =>
+        present.has(service)
+          ? BUCKETS.map((bucket) => lookup.at(p.line, d.stationNo, d.direction, dayType, bucket, service))
+          : null,
+      ) as ServiceSeries;
+    };
+    return [forDirection(departures[i][0]), forDirection(departures[i][1])];
   });
   const payload: CongestionPayload = { dayType, values };
   congestionByDay.set(dayType, JSON.stringify(payload));

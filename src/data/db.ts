@@ -13,10 +13,11 @@ CREATE TABLE IF NOT EXISTS congestion (
   station_no INTEGER NOT NULL,
   station    TEXT    NOT NULL,
   direction  TEXT    NOT NULL,
+  service    TEXT    NOT NULL DEFAULT '일반',
   bucket     TEXT    NOT NULL,
   bucket_min INTEGER NOT NULL,
   pct        REAL    NOT NULL,
-  PRIMARY KEY (quarter, day_type, line, station_no, direction, bucket_min)
+  PRIMARY KEY (quarter, day_type, line, station_no, direction, service, bucket_min)
 ) WITHOUT ROWID;
 
 -- Graph building walks line -> ordered station numbers.
@@ -43,8 +44,28 @@ export function openDb(): DatabaseSync {
   const db = new DatabaseSync(DB_PATH);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
+  migrate(db);
   db.exec(SCHEMA);
   return db;
+}
+
+/**
+ * Bring an older database up to the current shape.
+ *
+ * `service` joined the primary key when 9호선 arrived with its 급행 sheets, and
+ * SQLite cannot alter a primary key in place. Everything in this table is
+ * re-derivable from the sources, so the honest move is to drop it and say so
+ * rather than to leave a half-migrated table that silently loses 급행 rows.
+ */
+function migrate(db: DatabaseSync): void {
+  const columns = db.prepare("SELECT name FROM pragma_table_info('congestion')").all() as { name: string }[];
+  if (columns.length === 0) return; // fresh database
+  if (columns.some((c) => c.name === 'service')) return;
+
+  db.exec('DROP VIEW IF EXISTS stations');
+  db.exec('DROP TABLE IF EXISTS congestion');
+  db.prepare("DELETE FROM meta WHERE key IN ('quarter', 'source', 'ingested_at')").run();
+  console.warn('congestion table rebuilt for the new service column — re-run `npm run ingest` and `npm run line9`.');
 }
 
 export function setMeta(db: DatabaseSync, key: string, value: string): void {
@@ -58,31 +79,45 @@ export function getMeta(db: DatabaseSync, key: string): string | null {
 }
 
 /**
- * Replace the entire table with one quarter's rows.
+ * Replace every row for the lines this batch covers.
  *
- * We only ever keep the latest quarter, so a refresh is a wholesale swap:
- * rows from any other quarter are dropped. Running this twice with the same
- * data is a no-op, which makes re-ingest safe to retry.
+ * Scoped by line, not by quarter. The two sources cover different lines AND
+ * different periods — 1-8 is republished quarterly, 9호선 is a one-off file
+ * measured in a single week — so a wholesale "delete anything from another
+ * quarter" swap would have made re-ingesting lines 1-8 silently delete 9호선.
+ *
+ * Running this twice with the same data is a no-op, so re-ingest is safe to
+ * retry.
  */
-export function replaceQuarter(db: DatabaseSync, quarter: string, rows: CongestionRow[], source: string): number {
+export function replaceLines(
+  db: DatabaseSync,
+  options: { quarter: string; rows: CongestionRow[]; source: string; meta?: Record<string, string> },
+): { written: number; total: number } {
+  const { quarter, rows, source } = options;
   if (rows.length === 0) throw new Error(`Refusing to replace ${quarter} with zero rows`);
+
+  const lines = [...new Set(rows.map((r) => r.line))];
 
   const insert = db.prepare(`
     INSERT INTO congestion
-      (quarter, day_type, line, station_no, station, direction, bucket, bucket_min, pct)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (quarter, day_type, line, station_no, station, direction, service, bucket, bucket_min, pct)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT DO UPDATE SET pct = excluded.pct, station = excluded.station, bucket = excluded.bucket
   `);
 
   db.exec('BEGIN');
   try {
-    db.prepare('DELETE FROM congestion WHERE quarter <> ?').run(quarter);
+    const placeholders = lines.map(() => '?').join(', ');
+    db.prepare(`DELETE FROM congestion WHERE line IN (${placeholders})`).run(...lines);
     for (const r of rows) {
-      insert.run(quarter, r.dayType, r.line, r.stationNo, r.station, r.direction, r.bucket, r.bucketMin, r.pct);
+      insert.run(
+        quarter, r.dayType, r.line, r.stationNo, r.station,
+        r.direction, r.service, r.bucket, r.bucketMin, r.pct,
+      );
     }
-    setMeta(db, 'quarter', quarter);
     setMeta(db, 'source', source);
     setMeta(db, 'ingested_at', new Date().toISOString());
+    for (const [key, value] of Object.entries(options.meta ?? {})) setMeta(db, key, value);
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -90,5 +125,5 @@ export function replaceQuarter(db: DatabaseSync, quarter: string, rows: Congesti
   }
 
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM congestion').get() as { n: number };
-  return n;
+  return { written: rows.length, total: n };
 }

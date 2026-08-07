@@ -17,6 +17,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { COORDS_NAMESPACE, fetchAll, latestVersion } from './discover.ts';
 import { baseName } from '../domain/topology.ts';
+import { LINE9 } from './line9.ts';
 
 export interface StationCoord {
   line: string;
@@ -25,7 +26,7 @@ export interface StationCoord {
   lat: number;
   lon: number;
   /** How this coordinate was obtained, for the audit trail. */
-  source: 'file' | 'file:renamed' | 'override';
+  source: 'file' | 'file:renamed' | 'override' | 'shared-platform' | 'line9-table';
 }
 
 /**
@@ -64,6 +65,54 @@ const OVERRIDES: Record<string, { lat: number; lon: number; why: string }> = {
   '2호선|신답': { lat: 37.57, lon: 127.04639, why: 'file value 1.2km from the real station' },
 };
 
+/**
+ * 9호선 coordinates. The published file covers lines 1-8 only, and there is no
+ * equivalent for 9호선, so these come from the Korean and English Wikipedia
+ * station articles.
+ *
+ * Only the 30 stations that 9호선 does NOT share with lines 1-8 are listed. The
+ * other eight — 김포공항, 당산, 여의도, 동작, 고속터미널, 종합운동장, 석촌,
+ * 올림픽공원 — deliberately have no entry: they are resolved by reusing the
+ * exact coordinate already loaded for the other line. That is not just tidier,
+ * it is required. The map groups platforms into one station by rounded
+ * position, so a value even slightly different would split 당산 into two
+ * stations sitting next to each other instead of one interchange.
+ */
+const LINE9_COORDS: Record<string, { lat: number; lon: number }> = {
+  개화: { lat: 37.57861111, lon: 126.79833333 },
+  공항시장: { lat: 37.56361111, lon: 126.81027778 },
+  신방화: { lat: 37.5675, lon: 126.81666667 },
+  마곡나루: { lat: 37.56972222, lon: 126.83 },
+  양천향교: { lat: 37.56833333, lon: 126.84138889 },
+  가양: { lat: 37.56111111, lon: 126.85527778 },
+  증미: { lat: 37.5575, lon: 126.86166667 },
+  등촌: { lat: 37.55111111, lon: 126.86472222 },
+  염창: { lat: 37.54694444, lon: 126.87472222 },
+  신목동: { lat: 37.54416667, lon: 126.88305556 },
+  선유도: { lat: 37.53777778, lon: 126.89388889 },
+  국회의사당: { lat: 37.52861111, lon: 126.9175 },
+  샛강: { lat: 37.5175, lon: 126.92805556 },
+  // 노량진 is a 1호선 interchange, but our 1호선 coverage stops at 서울역~청량리,
+  // so there is no file coordinate to reuse.
+  노량진: { lat: 37.51444444, lon: 126.94277778 },
+  노들: { lat: 37.512726, lon: 126.953096 },
+  흑석: { lat: 37.50888889, lon: 126.96361111 },
+  구반포: { lat: 37.50138889, lon: 126.98722222 },
+  신반포: { lat: 37.50333333, lon: 126.99583333 },
+  사평: { lat: 37.50416111, lon: 127.01521944 },
+  신논현: { lat: 37.50444444, lon: 127.02444444 },
+  언주: { lat: 37.5072, lon: 127.0339 },
+  선정릉: { lat: 37.5103, lon: 127.04385 },
+  삼성중앙: { lat: 37.5128, lon: 127.0525 },
+  봉은사: { lat: 37.514219, lon: 127.060271 },
+  삼전: { lat: 37.50453056, lon: 127.08721111 },
+  석촌고분: { lat: 37.50243889, lon: 127.09661111 },
+  송파나루: { lat: 37.51125, lon: 127.11278889 },
+  한성백제: { lat: 37.51666944, lon: 127.11621111 },
+  둔촌오륜: { lat: 37.51983889, lon: 127.13841944 },
+  중앙보훈병원: { lat: 37.52880658, lon: 127.14848757 },
+};
+
 interface CoordRecord {
   호선: number;
   '고유역번호(외부역코드)': number;
@@ -80,6 +129,10 @@ export interface CoordReport {
   overrides: { key: string; why: string }[];
   unusedRenames: string[];
   unusedOverrides: string[];
+  /** 9호선 stations resolved by reusing another line's coordinate. */
+  reusedFromOtherLine: string[];
+  /** 9호선 stations taken from LINE9_COORDS. */
+  fromLine9Table: string[];
 }
 
 export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise<CoordReport> {
@@ -96,6 +149,10 @@ export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise
     .prepare('SELECT DISTINCT line, station_no, station FROM congestion WHERE station_no < 9000 ORDER BY line, station_no')
     .all() as { line: string; station_no: number; station: string }[];
 
+  // Lines 1-8 first, so a 9호선 interchange can reuse a coordinate that is
+  // already resolved rather than needing its own near-duplicate.
+  platforms.sort((a, b) => Number(a.line === LINE9) - Number(b.line === LINE9));
+
   const coords: StationCoord[] = [];
   const numberMismatches: CoordReport['numberMismatches'] = [];
   const overrides: CoordReport['overrides'] = [];
@@ -103,6 +160,10 @@ export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise
   const usedOverrides = new Set<string>();
   const missing: string[] = [];
   const seen = new Set<string>();
+  const reusedFromOtherLine: string[] = [];
+  const fromLine9Table: string[] = [];
+  /** Base name -> coordinate already resolved on some other line. */
+  const resolvedByName = new Map<string, { lat: number; lon: number }>();
 
   for (const p of platforms) {
     const key = `${p.line}:${p.station_no}`;
@@ -112,12 +173,31 @@ export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise
     const ourName = baseName(p.station);
     const lookupKey = `${p.line}|${ourName}`;
 
+    // 9호선 is not in the published file at all.
+    if (p.line === LINE9) {
+      const shared = resolvedByName.get(ourName);
+      const manual = LINE9_COORDS[ourName];
+      const point = shared ?? manual;
+      if (!point) {
+        missing.push(`${p.line} ${p.station_no} ${p.station}`);
+        continue;
+      }
+      (shared ? reusedFromOtherLine : fromLine9Table).push(ourName);
+      coords.push({
+        line: p.line, stationNo: p.station_no, station: p.station,
+        lat: point.lat, lon: point.lon,
+        source: shared ? 'shared-platform' : 'line9-table',
+      });
+      continue;
+    }
+
     // An override wins outright — it exists because the file's value was
     // measured to be wrong, so there is nothing to reconcile with.
     const override = OVERRIDES[lookupKey];
     if (override) {
       usedOverrides.add(lookupKey);
       overrides.push({ key: lookupKey, why: override.why });
+      resolvedByName.set(ourName, { lat: override.lat, lon: override.lon });
       coords.push({
         line: p.line, stationNo: p.station_no, station: p.station,
         lat: override.lat, lon: override.lon, source: 'override',
@@ -147,6 +227,7 @@ export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise
       throw new Error(`Implausible coordinate for ${p.line} ${p.station}: ${lat}, ${lon}`);
     }
 
+    resolvedByName.set(ourName, { lat, lon });
     coords.push({
       line: p.line,
       stationNo: p.station_no,
@@ -160,7 +241,7 @@ export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise
   if (missing.length) {
     throw new Error(
       `No coordinate for ${missing.length} station(s):\n  ${missing.join('\n  ')}\n` +
-        'Add them to OVERRIDES in src/data/coords.ts with a cited source.',
+        'Add them to OVERRIDES (lines 1-8) or LINE9_COORDS in src/data/coords.ts with a cited source.',
     );
   }
 
@@ -171,6 +252,8 @@ export async function fetchCoords(db: DatabaseSync, serviceKey: string): Promise
     overrides,
     unusedRenames: Object.keys(RENAMED).filter((k) => !usedRenames.has(k)),
     unusedOverrides: Object.keys(OVERRIDES).filter((k) => !usedOverrides.has(k)),
+    reusedFromOtherLine,
+    fromLine9Table,
   };
 }
 

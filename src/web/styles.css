@@ -56,6 +56,10 @@
   --line-6: #cd7c2f;
   --line-7: #747f00;
   --line-8: #e6186c;
+  /* 9호선's official gold #bdb092 measures 2.09:1 on the light surface, so the
+     light column is darkened to clear 3:1; dark mode uses the official value,
+     which is already 8.1:1 there. */
+  --line-9: #95875e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -89,6 +93,7 @@
     --line-6: #de9a5a;
     --line-7: #a3b03c;
     --line-8: #f0508e;
+    --line-9: #bdb092;
   }
 }
 
@@ -121,6 +126,7 @@
   --line-6: #de9a5a;
   --line-7: #a3b03c;
   --line-8: #f0508e;
+  --line-9: #bdb092;
 }
 
 * {
@@ -329,6 +335,10 @@ button[aria-pressed="true"] {
 
 .track-8 {
   stroke: var(--line-8);
+}
+
+.track-9 {
+  stroke: var(--line-9);
 }
 
 /* Four station states, deliberately distinct.

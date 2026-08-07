@@ -11,7 +11,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { openDb, replaceQuarter } from './db.ts';
+import { openDb, replaceLines } from './db.ts';
 import { expandRecord, FIXED_COLUMNS, type CongestionRow } from './normalize.ts';
 import { API_BASE, latestVersion, listVersions, quarterOf, type DatasetVersion } from './discover.ts';
 
@@ -109,7 +109,12 @@ if (dryRun) {
   writeFileSync(join(RAW_DIR, `${quarter}.json`), JSON.stringify(records, null, 2));
 
   const db = openDb();
-  const total = replaceQuarter(db, quarter, rows, `odcloud:${version.uddi}`);
+  const { total } = replaceLines(db, {
+    quarter,
+    rows,
+    source: `odcloud:${version.uddi}`,
+    meta: { quarter },
+  });
   db.close();
 
   console.log(`Ingested ${quarter}`);

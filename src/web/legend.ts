@@ -5,7 +5,8 @@
  * which half of the dot it is — so neither can be left to be inferred.
  */
 import { BANDS, SCALE_MAX } from '../shared/scale.ts';
-import type { DirectionMode } from './map.ts';
+import type { DirectionMode, ServiceMode } from './map.ts';
+import { SERVICE_SLOTS } from '../shared/types.ts';
 
 /**
  * How each direction slot is labelled. Index matches WirePlatform.directions:
@@ -13,7 +14,12 @@ import type { DirectionMode } from './map.ts';
  */
 export const DIRECTION_SLOT_LABELS = ['상행 · 외선', '하행 · 내선'] as const;
 
-export function renderLegend(container: HTMLElement, mode: DirectionMode, threshold: number | null): void {
+export function renderLegend(
+  container: HTMLElement,
+  mode: DirectionMode,
+  threshold: number | null,
+  service: ServiceMode,
+): void {
   container.replaceChildren();
 
   const ramp = document.createElement('div');
@@ -79,14 +85,26 @@ export function renderLegend(container: HTMLElement, mode: DirectionMode, thresh
 
   container.append(ramp, direction, noData, noService);
 
-  // Only meaningful while something is being filtered out.
-  if (threshold !== null) {
+  // Dashed means "a station, but not what you are asking about" — which can be
+  // either filter, so the key names whichever is active.
+  const reasons: string[] = [];
+  if (threshold !== null) reasons.push(`below ${BANDS[threshold].label}`);
+  if (service !== 'worst') reasons.push(`no ${SERVICE_SLOTS[service]}`);
+
+  if (reasons.length) {
     const below = document.createElement('span');
     below.className = 'legend-key';
     below.innerHTML =
       '<svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true">' +
       '<circle cx="0" cy="0" r="6" fill="none" stroke="var(--dot-edge)" stroke-width="0.9" stroke-dasharray="1.8 1.8"></circle>' +
-      `</svg><span>dashed = below ${BANDS[threshold].label}</span>`;
+      `</svg><span>dashed = ${reasons.join(' / ')}</span>`;
     container.append(below);
+  }
+
+  if (service !== 'worst') {
+    const which = document.createElement('span');
+    which.className = 'legend-key';
+    which.textContent = `showing ${SERVICE_SLOTS[service]} only`;
+    container.append(which);
   }
 }

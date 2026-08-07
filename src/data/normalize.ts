@@ -14,12 +14,23 @@ export const FIXED_COLUMNS = {
   direction: '상하구분',
 } as const;
 
+/**
+ * Which train. Lines 1-8 run one service, so everything from that source is
+ * 일반. 9호선 publishes 급행 separately, and at a station where both stop they
+ * are different trains with very different loads — 급행 reaches 186% where the
+ * 일반 beside it is under 70%. Averaging or overwriting them would erase the
+ * single most crowded thing in the network.
+ */
+export const SERVICES = ['일반', '급행'] as const;
+export type Service = (typeof SERVICES)[number];
+
 export interface CongestionRow {
   dayType: string;
   line: string;
   stationNo: number;
   station: string;
   direction: string;
+  service: Service;
   /** Canonical 'HH:MM'. Post-midnight buckets become 24:00 / 24:30 so lexical order stays chronological. */
   bucket: string;
   /** Minutes from midnight of the service day; 330 (05:30) .. 1470 (00:30 next day). */
@@ -96,6 +107,7 @@ export function expandRecord(record: Record<string, unknown>): CongestionRow[] {
       stationNo,
       station,
       direction,
+      service: '일반',
       bucket: col.bucket,
       bucketMin: col.bucketMin,
       pct,

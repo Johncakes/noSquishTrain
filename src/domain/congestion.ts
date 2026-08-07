@@ -6,6 +6,7 @@
  * needs a lookup.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { SERVICES, type Service } from '../data/normalize.ts';
 
 /** Service day runs 05:30 (330) to 00:30 next day (1470), in 30-min steps. */
 export const FIRST_BUCKET = 330;
@@ -17,12 +18,23 @@ export type DayType = (typeof DAY_TYPES)[number];
 
 export interface Lookup {
   /** Congestion percent, or null when the dataset has no row for it. */
-  at(line: string, stationNo: number, direction: string, dayType: string, minutes: number): number | null;
+  at(
+    line: string,
+    stationNo: number,
+    direction: string,
+    dayType: string,
+    minutes: number,
+    service?: Service,
+  ): number | null;
+  /** Which services this platform/direction actually publishes. */
+  servicesAt(line: string, stationNo: number, direction: string): Service[];
   quarter: string | null;
 }
 
-const key = (dayType: string, line: string, stationNo: number, direction: string, bucket: number) =>
-  `${dayType}|${line}|${stationNo}|${direction}|${bucket}`;
+const key = (
+  dayType: string, line: string, stationNo: number,
+  direction: string, service: string, bucket: number,
+) => `${dayType}|${line}|${stationNo}|${direction}|${service}|${bucket}`;
 
 /**
  * Snap a time to the nearest published bucket.
@@ -72,23 +84,35 @@ export function normalizeDayType(input: string): DayType {
 
 export function loadCongestion(db: DatabaseSync): Lookup {
   const table = new Map<string, number>();
+  const services = new Map<string, Set<Service>>();
+
   const rows = db
-    .prepare('SELECT day_type, line, station_no, direction, bucket_min, pct FROM congestion')
+    .prepare('SELECT day_type, line, station_no, direction, service, bucket_min, pct FROM congestion')
     .all() as {
-    day_type: string; line: string; station_no: number; direction: string; bucket_min: number; pct: number;
+    day_type: string; line: string; station_no: number; direction: string;
+    service: string; bucket_min: number; pct: number;
   }[];
 
   for (const r of rows) {
-    table.set(key(r.day_type, r.line, r.station_no, r.direction, r.bucket_min), r.pct);
+    table.set(key(r.day_type, r.line, r.station_no, r.direction, r.service, r.bucket_min), r.pct);
+    const platformKey = `${r.line}|${r.station_no}|${r.direction}`;
+    let set = services.get(platformKey);
+    if (!set) services.set(platformKey, (set = new Set()));
+    set.add(r.service as Service);
   }
 
   const meta = db.prepare("SELECT value FROM meta WHERE key = 'quarter'").get() as { value: string } | undefined;
 
   return {
     quarter: meta?.value ?? null,
-    at(line, stationNo, direction, dayType, minutes) {
-      const found = table.get(key(dayType, line, stationNo, direction, nearestBucket(minutes)));
+    at(line, stationNo, direction, dayType, minutes, service = '일반') {
+      const found = table.get(key(dayType, line, stationNo, direction, service, nearestBucket(minutes)));
       return found ?? null;
+    },
+    servicesAt(line, stationNo, direction) {
+      const set = services.get(`${line}|${stationNo}|${direction}`);
+      // Ordered by SERVICES so callers get 일반 before 급행, never insertion order.
+      return set ? SERVICES.filter((s) => set.has(s)) : [];
     },
   };
 }

@@ -5,8 +5,9 @@
  * screen is a function of those, which is why this needs no framework.
  */
 import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, type DayType } from '../shared/scale.ts';
+import { SERVICE_SLOTS } from '../shared/types.ts';
 import type { CongestionPayload, NetworkPayload } from '../shared/types.ts';
-import { createMap, type DirectionMode, type MapView } from './map.ts';
+import { createMap, readingFor, type DirectionMode, type MapView, type ServiceMode } from './map.ts';
 import { createTimeline } from './timeline.ts';
 import { DIRECTION_SLOT_LABELS, renderLegend } from './legend.ts';
 
@@ -27,8 +28,11 @@ async function getJSON<T>(url: string): Promise<T> {
 async function boot(): Promise<void> {
   const network = await getJSON<NetworkPayload>('/api/network');
 
+  // Two congestion sources measured in different periods, so both are named
+  // rather than implying one date covers the whole map.
   $('provenance').textContent =
-    `혼잡도 ${network.quarter ?? '?'} · 좌표 ${network.coordsVersion ?? '?'} · ${network.platforms.length} platforms`;
+    `1–8호선 ${network.quarter ?? '?'} · 9호선 ${network.line9Period ?? '?'} · ` +
+    `좌표 ${network.coordsVersion ?? '?'} · ${network.platforms.length} platforms`;
 
   // Day-type payloads are cached after first fetch; there are only three.
   const cache = new Map<DayType, CongestionPayload>();
@@ -74,6 +78,8 @@ async function boot(): Promise<void> {
   let directionMode: DirectionMode = 'both';
   /** Band index to emphasise, or null for "show every reading solid". */
   let threshold: number | null = null;
+  /** Which train: the worst service running here, or a named one. */
+  let serviceMode: ServiceMode = 'worst';
 
   const timeline = createTimeline(
     $<HTMLInputElement>('slider'),
@@ -84,6 +90,17 @@ async function boot(): Promise<void> {
 
   const tooltip = $('tooltip');
   let hoveredIndex: number | null = null;
+
+  /** Name the service behind a 'worst' reading, so the headline says which train. */
+  function serviceLabelAt(platformIndex: number, slot: number, bucketIndex: number): string {
+    const series = current.values[platformIndex]?.[slot];
+    if (!series) return '';
+    const present = SERVICE_SLOTS.filter((_, i) => series[i]);
+    if (present.length < 2) return '';
+    const a = series[0]?.[bucketIndex] ?? -1;
+    const b = series[1]?.[bucketIndex] ?? -1;
+    return b > a ? SERVICE_SLOTS[1] : SERVICE_SLOTS[0];
+  }
 
   /** Does this reading pass the current threshold? */
   const matches = (pct: number | null | undefined): boolean =>
@@ -103,11 +120,13 @@ async function boot(): Promise<void> {
       if (lineFilter !== null && platform.line !== lineFilter) return;
       current.values[i]?.forEach((series, d) => {
         if (directionMode !== 'both' && d !== directionMode) return;
-        const pct = series?.[bucketIndex];
+        const { pct, selected } = readingFor(series, bucketIndex, serviceMode);
+        if (!selected || pct === null) return;
         if (matches(pct)) hits++;
-        if (pct !== null && pct !== undefined && pct > worst) {
+        if (pct > worst) {
           worst = pct;
-          where = `${platform.name} ${platform.line} ${platform.directions[d]?.direction ?? ''}`;
+          const svc = serviceMode === 'worst' ? serviceLabelAt(i, d, bucketIndex) : SERVICE_SLOTS[serviceMode];
+          where = `${platform.name} ${platform.line} ${platform.directions[d]?.direction ?? ''}${svc ? ' ' + svc : ''}`;
         }
       });
     });
@@ -130,15 +149,17 @@ async function boot(): Promise<void> {
       // The table is the map's twin, so it filters on the same rule — a row
       // here should mean a solid dot there.
       const shown = [0, 1].filter((d) => directionMode === 'both' || d === directionMode);
-      if (threshold !== null && !shown.some((d) => matches(current.values[i]?.[d]?.[bucketIndex]))) return;
+      const readingAt = (d: number) => readingFor(current.values[i]?.[d] ?? null, bucketIndex, serviceMode);
+      if (threshold !== null && !shown.some((d) => matches(readingAt(d).pct))) return;
 
       const cells = [0, 1].map((d) => {
         const direction = platform.directions[d];
         if (!direction) return '<td class="none">—</td><td class="none">no service</td>';
-        const pct = current.values[i]?.[d]?.[bucketIndex] ?? null;
-        return pct === null
-          ? '<td class="none">—</td><td class="none">no data</td>'
-          : `<td class="num">${pct.toFixed(1)}%</td><td>${direction!.direction} ${bandLabel(pct)}</td>`;
+        const { pct, selected } = readingAt(d);
+        if (!selected) return `<td class="none">—</td><td class="none">no ${SERVICE_SLOTS[serviceMode as 0 | 1]}</td>`;
+        if (pct === null) return '<td class="none">—</td><td class="none">no data</td>';
+        const svc = serviceMode === 'worst' ? serviceLabelAt(i, d, bucketIndex) : SERVICE_SLOTS[serviceMode];
+        return `<td class="num">${pct.toFixed(1)}%</td><td>${direction.direction} ${bandLabel(pct)}${svc ? ' · ' + svc : ''}</td>`;
       });
       rows.push(`<tr><th scope="row">${platform.name}</th><td>${platform.line}</td>${cells.join('')}</tr>`);
     });
@@ -162,11 +183,20 @@ async function boot(): Promise<void> {
         return `<dt><span class="swatch swatch-none">✕</span></dt><dd class="pct">—</dd>` +
           `<dd class="band">${DIRECTION_SLOT_LABELS[d]} · no service</dd>`;
       }
-      const pct = current.values[index]?.[d]?.[bucket] ?? null;
-      const swatch = `<span class="swatch" style="background:${bandColorVar(pct)}"></span>`;
-      const value = pct === null ? '—' : `${pct.toFixed(1)}%`;
-      const label = pct === null ? 'no data' : bandLabel(pct);
-      return `<dt>${swatch}</dt><dd class="pct">${value}</dd><dd class="band">${direction.direction} → ${direction.toward} · ${label}</dd>`;
+      // Every service that runs here gets its own line. On 9호선 the 급행 and
+      // the 일반 beside it differ by 70 points; one merged number would hide it.
+      const series = current.values[index]?.[d] ?? null;
+      const running = SERVICE_SLOTS.map((name, si) => ({ name, si })).filter(({ si }) => series?.[si]);
+
+      return running.map(({ name, si }) => {
+        const pct = series?.[si]?.[bucket] ?? null;
+        const swatch = `<span class="swatch" style="background:${bandColorVar(pct)}"></span>`;
+        const value = pct === null ? '—' : `${pct.toFixed(1)}%`;
+        const label = pct === null ? 'no data' : bandLabel(pct);
+        const svc = running.length > 1 ? ` ${name}` : '';
+        return `<dt>${swatch}</dt><dd class="pct">${value}</dd>` +
+          `<dd class="band">${direction.direction}${svc} → ${direction.toward} · ${label}</dd>`;
+      }).join('');
     });
 
     tooltip.innerHTML =
@@ -194,7 +224,7 @@ async function boot(): Promise<void> {
 
   function repaint(): void {
     const bucket = timeline.index();
-    map.paint(current.values, bucket, directionMode, threshold);
+    map.paint(current.values, bucket, directionMode, threshold, serviceMode);
     $('peak-note').textContent = describePeak(bucket);
     if (!$('table-wrap').hidden) renderTable(bucket);
     // Keep an open tooltip truthful while the time moves under it.
@@ -216,13 +246,20 @@ async function boot(): Promise<void> {
   const directionSelect = $<HTMLSelectElement>('direction');
   directionSelect.addEventListener('change', () => {
     directionMode = directionSelect.value === 'both' ? 'both' : (Number(directionSelect.value) as 0 | 1);
-    renderLegend($('legend'), directionMode, threshold);
+    renderLegend($('legend'), directionMode, threshold, serviceMode);
+    repaint();
+  });
+
+  const serviceSelect = $<HTMLSelectElement>('service');
+  serviceSelect.addEventListener('change', () => {
+    serviceMode = serviceSelect.value === 'worst' ? 'worst' : (Number(serviceSelect.value) as 0 | 1);
+    renderLegend($('legend'), directionMode, threshold, serviceMode);
     repaint();
   });
 
   thresholdSelect.addEventListener('change', () => {
     threshold = thresholdSelect.value === 'all' ? null : Number(thresholdSelect.value);
-    renderLegend($('legend'), directionMode, threshold);
+    renderLegend($('legend'), directionMode, threshold, serviceMode);
     repaint();
   });
 
@@ -245,7 +282,7 @@ async function boot(): Promise<void> {
   $('zoom-out').addEventListener('click', () => map.zoomBy(1 / 1.4));
   $('zoom-reset').addEventListener('click', () => map.resetZoom());
 
-  renderLegend($('legend'), directionMode, threshold);
+  renderLegend($('legend'), directionMode, threshold, serviceMode);
 
   // Start at the morning peak: it is the reason to look at this at all.
   const eightAM = network.buckets.indexOf(480);

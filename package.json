@@ -10,6 +10,7 @@
   "scripts": {
     "seed": "node --no-warnings=ExperimentalWarning src/data/seed-csv.ts",
     "ingest": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/data/ingest.ts",
+    "line9": "node --no-warnings=ExperimentalWarning src/cli/line9.ts",
     "coords": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/cli/coords.ts",
     "versions": "node --no-warnings=ExperimentalWarning src/cli/versions.ts",
     "stats": "node --no-warnings=ExperimentalWarning src/cli/stats.ts",

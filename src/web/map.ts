@@ -19,7 +19,7 @@
  * identity for orientation, never magnitude.
  */
 import { bandColorVar, bandIndex } from '../shared/scale.ts';
-import type { DirectionSeries, NetworkPayload } from '../shared/types.ts';
+import type { DirectionSeries, NetworkPayload, ServiceSeries } from '../shared/types.ts';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -74,6 +74,39 @@ export interface StationHover {
  */
 export type DirectionMode = 'both' | 0 | 1;
 
+/**
+ * Which train's numbers to show. 'worst' takes the higher of the services a
+ * platform runs, which is the honest answer to "how squished might I be here";
+ * picking one names a specific train. 급행 runs on 9호선 only, so selecting it
+ * dims everything else rather than pretending those platforms have one.
+ */
+export type ServiceMode = 'worst' | 0 | 1;
+
+/** The reading to draw for one direction, given the service selection. */
+export function readingFor(
+  series: ServiceSeries | null,
+  bucketIndex: number,
+  mode: ServiceMode,
+): { pct: number | null; selected: boolean } {
+  if (!series) return { pct: null, selected: false };
+
+  if (mode !== 'worst') {
+    const chosen = series[mode];
+    // The platform does not run this train at all — not the same as running it
+    // empty, so it is de-emphasised rather than drawn as a low reading.
+    if (!chosen) return { pct: null, selected: false };
+    return { pct: chosen[bucketIndex] ?? null, selected: true };
+  }
+
+  let worst: number | null = null;
+  for (const s of series) {
+    const pct = s?.[bucketIndex];
+    if (pct === null || pct === undefined) continue;
+    if (worst === null || pct > worst) worst = pct;
+  }
+  return { pct: worst, selected: true };
+}
+
 export interface MapView {
   /**
    * Repaint every dot for one time bucket.
@@ -87,6 +120,7 @@ export interface MapView {
     bucketIndex: number,
     mode: DirectionMode,
     threshold: number | null,
+    service: ServiceMode,
   ): void;
   /** Restrict to one line, or show everything when null. */
   setLineFilter(line: string | null): void;
@@ -198,19 +232,29 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
    * outline; a direction with no published measurement is a filled grey dot,
    * because "nobody counted" is not "quiet".
    */
-  function setMark(node: SVGElement, pct: number | null, threshold: number | null): void {
-    if (pct === null) {
+  function setMark(
+    node: SVGElement,
+    reading: { pct: number | null; selected: boolean },
+    threshold: number | null,
+  ): void {
+    // Not the train you asked about: a station, but not part of this question.
+    if (!reading.selected) {
+      node.setAttribute('class', 'dot-below');
+      node.removeAttribute('fill');
+      return;
+    }
+    if (reading.pct === null) {
       node.setAttribute('class', 'dot-nodata');
       node.setAttribute('fill', 'var(--no-data)');
       return;
     }
-    if (threshold !== null && bandIndex(pct) < threshold) {
+    if (threshold !== null && bandIndex(reading.pct) < threshold) {
       node.setAttribute('class', 'dot-below');
       node.removeAttribute('fill');
       return;
     }
     node.setAttribute('class', 'dot-on');
-    node.setAttribute('fill', bandColorVar(pct));
+    node.setAttribute('fill', bandColorVar(reading.pct));
   }
 
   function paint(
@@ -218,6 +262,7 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
     bucketIndex: number,
     mode: DirectionMode,
     threshold: number | null,
+    service: ServiceMode,
   ): void {
     const both = mode === 'both';
 
@@ -235,7 +280,7 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
             continue;
           }
           path.style.display = '';
-          setMark(path, perDirection?.[slot]?.[bucketIndex] ?? null, threshold);
+          setMark(path, readingFor(perDirection?.[slot] ?? null, bucketIndex, service), threshold);
         }
 
         // Half an X where the missing direction would have been.
@@ -260,7 +305,7 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
 
       full.style.display = '';
       cross.style.display = 'none';
-      setMark(full, perDirection?.[mode]?.[bucketIndex] ?? null, threshold);
+      setMark(full, readingFor(perDirection?.[mode] ?? null, bucketIndex, service), threshold);
     }
   }
 

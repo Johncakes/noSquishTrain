@@ -8,7 +8,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { openDb, replaceQuarter } from './db.ts';
+import { openDb, replaceLines } from './db.ts';
 import { expandRecord, type CongestionRow } from './normalize.ts';
 
 const PROJECT_ROOT = join(import.meta.dirname, '..');
@@ -53,7 +53,7 @@ const records = parseCsv(csvPath);
 const rows: CongestionRow[] = records.flatMap(expandRecord);
 
 const db = openDb();
-const total = replaceQuarter(db, quarter, rows, `csv:${basename(csvPath)}`);
+const { total } = replaceLines(db, { quarter, rows, source: `csv:${basename(csvPath)}`, meta: { quarter } });
 db.close();
 
 console.log(`Seeded ${quarter} from ${basename(csvPath)}`);

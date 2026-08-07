@@ -44,7 +44,10 @@ export interface WireSegment {
 }
 
 export interface NetworkPayload {
+  /** Period of the lines 1-8 source. */
   quarter: string | null;
+  /** Period of the 9호선 file, which is a separate source measured elsewhen. */
+  line9Period: string | null;
   coordsVersion: string | null;
   /** Height / width of the network's bounding box. */
   aspect: number;
@@ -56,15 +59,25 @@ export interface NetworkPayload {
 }
 
 /**
- * Readings for one day type: `values[platformIndex][slot][bucket]`, with slot
- * matching WirePlatform.directions.
+ * Readings for one day type: `values[platform][slot][service][bucket]`.
  *
- * A null series means no service in that direction; a null inside a series
- * means no published measurement. Neither is ever zero.
+ * `slot` matches WirePlatform.directions (0 상행, 1 하행). `service` matches
+ * SERVICE_SLOTS (0 일반, 1 급행). 급행 exists only on 9호선, so slot 1 is null
+ * nearly everywhere — and where it is not, it is a different train, not a
+ * refinement of the 일반 number beside it.
+ *
+ * Three kinds of nothing, all distinct: a null service series means that train
+ * does not run here; a null direction means no train runs that way at all; a
+ * null inside a series means no published measurement. None is ever zero.
  */
-export type DirectionSeries = [(number | null)[] | null, (number | null)[] | null];
+export type ServiceSeries = [(number | null)[] | null, (number | null)[] | null];
+export type DirectionSeries = [ServiceSeries | null, ServiceSeries | null];
 
 export interface CongestionPayload {
   dayType: DayType;
   values: DirectionSeries[];
 }
+
+/** Index into a ServiceSeries. Mirrors SERVICES in data/normalize.ts. */
+export const SERVICE_SLOTS = ['일반', '급행'] as const;
+export type ServiceSlot = 0 | 1;

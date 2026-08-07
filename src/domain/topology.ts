@@ -26,15 +26,30 @@ export interface DirectionLabels {
  */
 export const DEFAULT_DIRECTIONS: DirectionLabels = { forward: '하선', backward: '상선' };
 
-/** Loop lines label direction by inner/outer circle instead. */
-export const LOOP_DIRECTIONS: Record<string, DirectionLabels> = {
+/**
+ * Lines whose direction labels are not the default.
+ *
+ * 2호선 is a loop and labels by inner/outer circle. 9호선 is the important one:
+ * its 상선/하선 run the OPPOSITE way to lines 1-8, which is not a convention
+ * anyone could guess and is easy to get silently backwards.
+ *
+ * Proven the same way as the default: by which terminus has no departures.
+ * 개화 is 9호선's lowest 역번호 and its 하선 series is zero in every bucket,
+ * while 중앙보훈병원 (the highest) has an all-zero 상선. On lines 1-8 it is the
+ * other way round — 방화, 응암 and 장암 are all-zero on 상선. So 9호선 counts
+ * 상선 as increasing 역번호.
+ */
+export const LINE_DIRECTIONS: Record<string, DirectionLabels> = {
   // 내선순환 runs 시청 -> 을지로입구 -> 왕십리 -> 잠실 -> 강남 -> 신도림 -> 시청,
   // which is increasing 역번호 order.
   '2호선': { forward: '내선', backward: '외선' },
+  // 개화 -> 중앙보훈병원 is 상선 here, the reverse of every other line.
+  '9호선': { forward: '상선', backward: '하선' },
 };
 
+
 export function directionsFor(line: string): DirectionLabels {
-  return LOOP_DIRECTIONS[line] ?? DEFAULT_DIRECTIONS;
+  return LINE_DIRECTIONS[line] ?? DEFAULT_DIRECTIONS;
 }
 
 /**

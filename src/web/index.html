@@ -37,6 +37,15 @@
     </div>
 
     <div class="control-group">
+      <label for="service">열차</label>
+      <select id="service">
+        <option value="worst">전체</option>
+        <option value="0">일반</option>
+        <option value="1">급행</option>
+      </select>
+    </div>
+
+    <div class="control-group">
       <label for="threshold">강조</label>
       <select id="threshold"><option value="all">전체</option></select>
     </div>
@@ -85,7 +94,9 @@
 
 <footer>
   Congestion is the 서울교통공사 published load factor: 100% is the design capacity of the train, not "full".
-  Readings are half-hourly averages for lines 1–8 only, and 1호선 covers 서울역–청량리 only.
+  Lines 1–8 come from the quarterly 서울교통공사 open API; 9호선 from a separate published spreadsheet
+  measured in one week of November 2025, whose 휴일 figure is a single Sat–Sun measurement shown for both days.
+  1호선 covers 서울역–청량리 only. On 9호선 the 급행 is a different train from the 일반 beside it.
   A station with no published measurement is drawn grey — never as an empty train.
 </footer>
 
