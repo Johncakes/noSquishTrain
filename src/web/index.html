@@ -3,601 +3,78 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>noSquishTrain — 서울 지하철 혼잡도 경로</title>
-<style>
-  /* Roles, not raw hex, so light/dark swap in one place. */
-  :root {
-    color-scheme: light;
-    --surface-1: #fcfcfb;
-    --page: #f9f9f7;
-    --text-primary: #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted: #898781;
-    --grid: #e1e0d9;
-    --axis: #c3c2b7;
-    --border: rgba(11, 11, 11, 0.10);
-    --bar: #2a78d6;
-    --bar-hover: #5598e7;
-    --bar-selected: #104281;
-    /* Status palette is fixed, never themed. Always paired with a text label. */
-    --good: #0ca30c;
-    --warning: #fab219;
-    --serious: #ec835a;
-    --critical: #d03b3b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) {
-      color-scheme: dark;
-      --surface-1: #1a1a19;
-      --page: #0d0d0d;
-      --text-primary: #ffffff;
-      --text-secondary: #c3c2b7;
-      --text-muted: #898781;
-      --grid: #2c2c2a;
-      --axis: #383835;
-      --border: rgba(255, 255, 255, 0.10);
-      --bar: #3987e5;
-      --bar-hover: #6da7ec;
-      --bar-selected: #9ec5f4;
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --surface-1: #1a1a19;
-    --page: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --grid: #2c2c2a;
-    --axis: #383835;
-    --border: rgba(255, 255, 255, 0.10);
-    --bar: #3987e5;
-    --bar-hover: #6da7ec;
-    --bar-selected: #9ec5f4;
-  }
-
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--page);
-    color: var(--text-primary);
-    /* Korean faces are named explicitly: the generic stack alone falls back to
-       tofu on systems without a CJK default. */
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic",
-          "Apple SD Gothic Neo", "Noto Sans KR", "Nanum Gothic", sans-serif;
-  }
-  main { max-width: 940px; margin: 0 auto; padding: 32px 20px 64px; }
-
-  header h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
-  header p { margin: 0 0 24px; color: var(--text-secondary); font-size: 14px; }
-
-  /* One filter row, above everything it scopes. */
-  form.filters {
-    display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;
-    padding: 16px; margin-bottom: 20px;
-    background: var(--surface-1);
-    border: 1px solid var(--border); border-radius: 10px;
-  }
-  .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 150px; }
-  .field label { font-size: 12px; color: var(--text-secondary); }
-  .field input, .field select {
-    font: inherit; font-size: 14px; padding: 7px 9px;
-    color: var(--text-primary); background: var(--page);
-    border: 1px solid var(--axis); border-radius: 6px;
-  }
-  button {
-    font: inherit; font-size: 14px; font-weight: 500; padding: 8px 18px;
-    color: var(--surface-1); background: var(--bar);
-    border: 1px solid transparent; border-radius: 6px; cursor: pointer;
-  }
-  button:hover { background: var(--bar-hover); }
-  button.ghost {
-    color: var(--text-secondary); background: transparent;
-    border-color: var(--axis); font-weight: 400; padding: 5px 12px; font-size: 13px;
-  }
-  button.ghost:hover { background: var(--page); color: var(--text-primary); }
-
-  .card {
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 10px; padding: 20px; margin-bottom: 16px;
-  }
-  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
-  .card h2 .sub { font-weight: 400; color: var(--text-secondary); }
-  .card p.caption { margin: 0 0 18px; font-size: 13px; color: var(--text-secondary); }
-
-  /* KPI row */
-  .kpis { display: flex; flex-wrap: wrap; gap: 28px; margin-bottom: 4px; }
-  .kpi .label { font-size: 12px; color: var(--text-secondary); }
-  .kpi .value { font-size: 26px; font-weight: 600; line-height: 1.2; }
-  .kpi .value .unit { font-size: 14px; font-weight: 400; color: var(--text-secondary); }
-
-  /* Route legs */
-  .option { padding-top: 16px; border-top: 1px solid var(--grid); margin-top: 16px; }
-  .option:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
-  .option .profiles { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-secondary); }
-  .option .summary { font-size: 14px; margin: 2px 0 10px; color: var(--text-primary); }
-  .leg { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; font-size: 14px; }
-  .leg .time { color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 44px; }
-  .leg .body { flex: 1; }
-  .leg .detail { color: var(--text-secondary); font-size: 13px; }
-  .leg.transfer .body { color: var(--text-secondary); font-style: italic; }
-
-  /* Status chip: dot + text, never colour alone. */
-  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
-  .chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .dot.good { background: var(--good); }
-  .dot.warning { background: var(--warning); }
-  .dot.serious { background: var(--serious); }
-  .dot.critical { background: var(--critical); }
-  .dot.unknown { background: var(--axis); }
-
-  /* Chart */
-  .chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-  #chart { width: 100%; }
-  #chart svg { display: block; width: 100%; }
-  /* The bar is painted over its hit rect, so it must not swallow the pointer —
-     otherwise the only hoverable part of a band is the empty space above the mark. */
-  .bar { fill: var(--bar); pointer-events: none; }
-  .bar.selected { fill: var(--bar-selected); }
-  .hit:hover + .bar, .hit:focus-visible + .bar { fill: var(--bar-hover); }
-  .hit { fill: transparent; cursor: pointer; outline: none; }
-  .hit:focus-visible { stroke: var(--text-primary); stroke-width: 2; }
-  .gridline { stroke: var(--grid); stroke-width: 1; }
-  .axisline { stroke: var(--axis); stroke-width: 1; }
-  .threshold { stroke: var(--text-muted); stroke-width: 1; }
-  .tick { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-  .marklabel { fill: var(--text-primary); font-size: 11px; font-weight: 600; }
-  .thlabel { fill: var(--text-muted); font-size: 10px; }
-
-  #tooltip {
-    position: fixed; pointer-events: none; z-index: 10; opacity: 0;
-    transition: opacity .08s; padding: 8px 10px; min-width: 150px;
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 7px; box-shadow: 0 4px 14px rgba(0,0,0,.14); font-size: 12px;
-  }
-  #tooltip .tt-head { font-size: 15px; font-weight: 600; }
-  #tooltip .tt-row { display: flex; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
-  #tooltip .tt-row b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
-
-  table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 14px; }
-  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
-  th:first-child, td:first-child { text-align: left; }
-  th { color: var(--text-secondary); font-weight: 500; }
-  [hidden] { display: none !important; }
-  .loading { opacity: .45; }
-  .error { color: var(--critical); font-size: 14px; }
-  .chart-key { font-size: 11px; color: var(--text-muted); margin: 8px 0 0; }
-  .note { font-size: 13px; color: var(--text-secondary); margin: 14px 0 0; }
-</style>
+<title>noSquishTrain — 서울 지하철 혼잡도 지도</title>
+<link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+
+<header>
+  <h1>서울 지하철 혼잡도</h1>
+  <span id="status" role="status" aria-live="polite">loading…</span>
+  <span class="provenance" id="provenance"></span>
+</header>
+
 <main>
-  <header>
-    <h1>noSquishTrain</h1>
-    <p>Seoul subway routes ranked by crowding, not just speed.
-       <span id="quarter-note"></span></p>
-  </header>
+  <div class="controls">
+    <div class="timeline">
+      <button type="button" class="play" id="play" aria-pressed="false" aria-label="Play through the day">▶</button>
+      <span class="clock" id="clock">08:00</span>
+      <input type="range" id="slider" aria-label="Time of day" value="0">
+    </div>
 
-  <form class="filters" id="filters">
-    <div class="field">
-      <label for="from">출발역</label>
-      <input id="from" name="from" list="stations" value="서울역" autocomplete="off" required>
-    </div>
-    <div class="field">
-      <label for="to">도착역</label>
-      <input id="to" name="to" list="stations" value="잠실" autocomplete="off" required>
-    </div>
-    <div class="field" style="flex: 0 1 120px">
+    <div class="control-group">
       <label for="day">요일</label>
-      <select id="day" name="day"></select>
-    </div>
-    <div class="field" style="flex: 0 1 120px">
-      <label for="time">출발 시각</label>
-      <input id="time" name="time" type="time" value="08:00" step="1800">
-    </div>
-    <button type="submit">Plan</button>
-  </form>
-  <datalist id="stations"></datalist>
-
-  <div id="error" class="card error" hidden></div>
-
-  <section id="results" hidden>
-    <div class="card" id="summary-card">
-      <div class="kpis" id="kpis"></div>
-      <p class="note" id="summary-note"></p>
+      <select id="day"></select>
     </div>
 
-    <div class="card">
-      <h2>Route options</h2>
-      <p class="caption" id="options-caption"></p>
-      <div id="options"></div>
+    <div class="control-group">
+      <label for="line">호선</label>
+      <select id="line"><option value="all">전체</option></select>
     </div>
 
-    <div class="card">
-      <div class="chart-head">
-        <div>
-          <h2>Peak crowding by departure time <span class="sub" id="chart-day"></span></h2>
-          <p class="caption" id="chart-caption"></p>
-        </div>
-        <button type="button" class="ghost" id="toggle-table" aria-expanded="false">Table view</button>
-      </div>
-      <div id="chart"></div>
-      <p class="chart-key" id="chart-key"></p>
-      <div id="table-view" hidden></div>
-      <p class="note" id="advice"></p>
+    <button type="button" id="toggle-table" aria-pressed="false">Show table</button>
+  </div>
+
+  <p class="peak-note" id="peak-note"></p>
+
+  <div class="map-wrap">
+    <svg id="map" role="img" aria-label="Map of Seoul subway lines 1 to 8, each station coloured by how crowded departing trains are at the selected time"></svg>
+    <p class="zoom-hint">scroll to zoom · drag to pan · space to play · ←/→ to step</p>
+    <div class="zoom-buttons">
+      <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" id="zoom-reset" aria-label="Reset zoom">⤢</button>
     </div>
-  </section>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="table-wrap" id="table-wrap" hidden>
+    <table>
+      <caption id="table-caption"></caption>
+      <thead>
+        <tr>
+          <th scope="col">역</th>
+          <th scope="col">호선</th>
+          <th scope="col">상선·외선</th>
+          <th scope="col"></th>
+          <th scope="col">하선·내선</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
 </main>
 
-<div id="tooltip" role="tooltip" aria-hidden="true"></div>
+<div id="tooltip" role="tooltip" hidden></div>
 
-<script type="module">
-const $ = (id) => document.getElementById(id);
+<footer>
+  Congestion is the 서울교통공사 published load factor: 100% is the design capacity of the train, not "full".
+  Readings are half-hourly averages for lines 1–8 only, and 1호선 covers 서울역–청량리 only.
+  A station with no published measurement is drawn grey — never as an empty train.
+</footer>
 
-/* Congestion bands. The operator defines 34% as every seat taken and 100% as
-   the nominal full load, so the boundaries are the data's own, not invented. */
-const BANDS = [
-  { max: 34,       status: 'good',     label: 'seat likely' },
-  { max: 70,       status: 'good',     label: 'room to stand' },
-  { max: 100,      status: 'warning',  label: 'busy' },
-  { max: 130,      status: 'serious',  label: 'packed' },
-  { max: Infinity, status: 'critical', label: 'crush' },
-];
-const bandFor = (pct) =>
-  pct === null || pct === undefined
-    ? { status: 'unknown', label: 'no data' }
-    : BANDS.find((b) => pct <= b.max);
-
-const el = (tag, className, text) => {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;   // station names are data — never innerHTML
-  return node;
-};
-const chip = (pct) => {
-  const band = bandFor(pct);
-  const wrap = el('span', 'chip');
-  wrap.append(el('span', `dot ${band.status}`));
-  wrap.append(el('span', null, band.label));
-  return wrap;
-};
-const round = (n) => Math.round(n);
-
-let sweepData = null;
-let selectedDepart = null;
-
-/* ── boot ─────────────────────────────────────────────────────────── */
-const meta = await (await fetch('/api/stations')).json();
-$('quarter-note').textContent = `Based on ${meta.quarter} published averages — typical conditions, not live.`;
-for (const s of meta.stations) {
-  const opt = document.createElement('option');
-  opt.value = s.name;
-  opt.label = `${s.name} (${s.lines.join(', ')})`;
-  $('stations').append(opt);
-}
-for (const d of meta.dayTypes) {
-  const opt = document.createElement('option');
-  opt.value = d; opt.textContent = d;
-  $('day').append(opt);
-}
-
-/* ── rendering ────────────────────────────────────────────────────── */
-function renderKpis(plan) {
-  const best = plan.options[0];
-  $('kpis').replaceChildren();
-  if (!best) return;
-
-  const tiles = [
-    ['Travel time', round(best.route.totalMinutes), 'min'],
-    ['Feels like', round(best.route.perceivedMinutes), 'min'],
-    ['Peak crowding', best.route.peakPct === null ? '—' : round(best.route.peakPct), '%'],
-    ['Transfers', best.route.transfers, ''],
-  ];
-  for (const [label, value, unit] of tiles) {
-    const tile = el('div', 'kpi');
-    tile.append(el('div', 'label', label));
-    const v = el('div', 'value', String(value));
-    if (unit) v.append(el('span', 'unit', ' ' + unit));
-    tile.append(v);
-    $('kpis').append(tile);
-  }
-
-  const note = `Recommended: ${best.profiles.join(' / ')} · departing ${plan.departLabel} ${plan.dayType}`;
-  $('summary-note').textContent = plan.outsideService
-    ? `${note}. Outside service hours — using the ${plan.bucketLabel} bucket.`
-    : note;
-}
-
-function renderOptions(plan) {
-  const host = $('options');
-  host.replaceChildren();
-  $('options-caption').textContent = plan.options.length === 1
-    ? 'Every profile picked the same path.'
-    : `${plan.options.length} distinct routes, ordered by perceived time.`;
-
-  for (const option of plan.options) {
-    const wrap = el('div', 'option');
-    wrap.append(el('div', 'profiles', option.profiles.join(' / ')));
-
-    const r = option.route;
-    const bits = [`${round(r.totalMinutes)} min`, `feels like ${round(r.perceivedMinutes)} min`,
-                  `${r.transfers} transfer${r.transfers === 1 ? '' : 's'}`];
-    if (r.peakPct !== null) bits.push(`peak ${round(r.peakPct)}%`);
-    wrap.append(el('div', 'summary', bits.join(' · ')));
-
-    let offset = 0;
-    for (const leg of r.legs) {
-      const row = el('div', `leg ${leg.kind}`);
-      row.append(el('span', 'time', minutesToLabel(plan.departMinutes + offset)));
-      const body = el('div', 'body');
-
-      if (leg.kind === 'transfer') {
-        body.append(el('div', null, `Transfer ${leg.line} at ${leg.from} (${leg.minutes} min)`));
-      } else {
-        body.append(el('div', null, `${leg.line} ${leg.direction}  ${leg.from} → ${leg.to}`));
-        const detail = el('div', 'detail');
-        detail.append(document.createTextNode(
-          `${leg.stops} stops · ${leg.minutes} min · avg ${leg.meanPct === null ? '?' : round(leg.meanPct) + '%'}` +
-          ` · peak ${leg.peakPct === null ? '?' : round(leg.peakPct) + '%'} `));
-        detail.append(chip(leg.peakPct));
-        body.append(detail);
-      }
-      row.append(body);
-      wrap.append(row);
-      offset += leg.minutes;
-    }
-
-    if (r.unknownMinutes > 0) {
-      wrap.append(el('p', 'note', `${r.unknownMinutes} min of this route has no congestion data.`));
-    }
-    host.append(wrap);
-  }
-}
-
-const minutesToLabel = (m) => {
-  const t = ((m % 1440) + 1440) % 1440;
-  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
-};
-
-/* ── chart ────────────────────────────────────────────────────────── */
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const svgEl = (tag, attrs) => {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
-  return node;
-};
-
-/** Column with a 4px rounded cap and a square baseline. */
-function columnPath(x, y, w, baseline) {
-  const r = Math.min(4, w / 2, baseline - y);
-  if (baseline - y <= 0.5) return `M${x},${baseline}L${x + w},${baseline}`;
-  return `M${x},${baseline}L${x},${y + r}Q${x},${y} ${x + r},${y}` +
-         `L${x + w - r},${y}Q${x + w},${y} ${x + w},${y + r}L${x + w},${baseline}Z`;
-}
-
-function renderChart() {
-  const host = $('chart');
-  host.replaceChildren();
-  if (!sweepData || sweepData.entries.length === 0) return;
-
-  const entries = sweepData.entries;
-  const width = Math.max(320, host.clientWidth);
-  const PAD = { top: 22, right: 14, bottom: 34, left: 38 };
-  const plotW = width - PAD.left - PAD.right;
-  const plotH = 210;
-  const height = PAD.top + plotH + PAD.bottom;   // container includes the axis band
-
-  const maxPeak = Math.max(...entries.map((e) => e.peakPct ?? 0), 100);
-  const step = maxPeak > 120 ? 50 : 25;
-  const yMax = Math.ceil(maxPeak / step) * step;
-  const y = (v) => PAD.top + plotH - (v / yMax) * plotH;
-
-  const band = plotW / entries.length;
-  const barW = Math.min(24, Math.max(2, band - 2));   // 2px surface gap between neighbours
-
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, height, role: 'img',
-    'aria-label': `Peak crowding percentage by departure time, ${sweepData.dayType}` });
-
-  // gridlines + y ticks (solid hairlines, recessive)
-  for (let v = 0; v <= yMax; v += step) {
-    svg.append(svgEl('line', { class: v === 0 ? 'axisline' : 'gridline',
-      x1: PAD.left, x2: width - PAD.right, y1: y(v), y2: y(v) }));
-    const t = svgEl('text', { class: 'tick', x: PAD.left - 7, y: y(v) + 4, 'text-anchor': 'end' });
-    t.textContent = v + '%';
-    svg.append(t);
-  }
-
-  // Threshold rules the operator's own scale defines. Labels are added after
-  // the SVG is in the document so their real width can be measured.
-  const thresholds = [];
-  for (const [value, label] of [[34, 'every seat taken'], [100, 'nominal full load']]) {
-    if (value > yMax) continue;
-    svg.append(svgEl('line', { class: 'threshold', x1: PAD.left, x2: width - PAD.right, y1: y(value), y2: y(value) }));
-    thresholds.push([value, label]);
-  }
-
-  const lowest = entries.reduce((a, b) => ((b.peakPct ?? 999) < (a.peakPct ?? 999) ? b : a));
-
-  // Thin out x labels until each has room; hourly ticks collide on a phone.
-  const hourlyCount = entries.filter((e) => e.departMinutes % 60 === 0).length;
-  const tickEvery = plotW / Math.max(1, hourlyCount) < 24 ? 120 : 60;
-
-  entries.forEach((entry, i) => {
-    const x = PAD.left + i * band + (band - barW) / 2;
-    const peak = entry.peakPct ?? 0;
-    const isSelected = entry.departMinutes === selectedDepart;
-
-    // Hit target spans the whole band and full plot height — never just the mark.
-    const hit = svgEl('rect', { class: 'hit', x: PAD.left + i * band, y: PAD.top,
-      width: band, height: plotH, tabindex: 0, role: 'button',
-      'aria-label': `${entry.departLabel}, peak ${round(peak)} percent, ${bandFor(entry.peakPct).label}, ` +
-        `${round(entry.totalMinutes)} minutes, feels like ${round(entry.perceivedMinutes)} minutes` });
-    svg.append(hit);
-    svg.append(svgEl('path', { class: `bar${isSelected ? ' selected' : ''}`,
-      d: columnPath(x, y(peak), barW, y(0)) }));
-
-    const show = () => showTooltip(hit, entry);
-    hit.addEventListener('pointerenter', show);
-    hit.addEventListener('focus', show);
-    hit.addEventListener('pointerleave', hideTooltip);
-    hit.addEventListener('blur', hideTooltip);
-    const pick = () => { $('time').value = entry.departLabel; $('filters').requestSubmit(); };
-    hit.addEventListener('click', pick);
-    hit.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
-
-    // Label selectively: the chosen departure and the calmest one. Clamp the
-    // anchor so an edge bar's label cannot overflow the plot.
-    if (isSelected || entry === lowest) {
-      const cx = Math.min(width - PAD.right - 14, Math.max(PAD.left + 14, x + barW / 2));
-      const t = svgEl('text', { class: 'marklabel', x: cx, y: y(peak) - 6, 'text-anchor': 'middle' });
-      t.textContent = round(peak) + '%';
-      svg.append(t);
-    }
-
-    if (entry.departMinutes % tickEvery === 0) {
-      const t = svgEl('text', { class: 'tick', x: x + barW / 2, y: height - 12, 'text-anchor': 'middle' });
-      t.textContent = entry.departLabel.slice(0, 2);
-      svg.append(t);
-    }
-  });
-
-  host.append(svg);
-
-  // The reference lines are named below the plot rather than on it. Any
-  // in-plot placement either collides with the bars or needs an opaque
-  // backdrop that hides them — and the y-axis already gives each line a value.
-  $('chart-key').textContent = thresholds.length
-    ? 'Reference lines: ' + thresholds.map(([v, label]) => `${v}% ${label}`).join(' · ')
-    : '';
-}
-
-function showTooltip(target, entry) {
-  const tip = $('tooltip');
-  tip.replaceChildren();
-  tip.append(el('div', 'tt-head', entry.departLabel));
-
-  const rows = [
-    ['Peak crowding', entry.peakPct === null ? '—' : round(entry.peakPct) + '%'],
-    ['Travel time', round(entry.totalMinutes) + ' min'],
-    ['Feels like', round(entry.perceivedMinutes) + ' min'],
-    ['Transfers', String(entry.transfers)],
-  ];
-  for (const [label, value] of rows) {
-    const row = el('div', 'tt-row');
-    row.append(el('span', null, label));
-    row.append(el('b', null, value));   // values lead, labels follow
-    tip.append(row);
-  }
-  const bandRow = el('div', 'tt-row');
-  bandRow.append(chip(entry.peakPct));
-  tip.append(bandRow);
-
-  const box = target.getBoundingClientRect();
-  tip.style.opacity = '1';
-  tip.setAttribute('aria-hidden', 'false');
-  const tipBox = tip.getBoundingClientRect();
-  tip.style.left = Math.min(window.innerWidth - tipBox.width - 8,
-                            Math.max(8, box.left + box.width / 2 - tipBox.width / 2)) + 'px';
-  tip.style.top = Math.max(8, box.top - tipBox.height - 8) + 'px';
-}
-const hideTooltip = () => {
-  $('tooltip').style.opacity = '0';
-  $('tooltip').setAttribute('aria-hidden', 'true');
-};
-
-function renderTable() {
-  const host = $('table-view');
-  host.replaceChildren();
-  if (!sweepData) return;
-
-  const table = el('table');
-  const head = el('tr');
-  for (const h of ['Departure', 'Peak', 'Crowding', 'Travel', 'Feels like', 'Transfers']) {
-    head.append(el('th', null, h));
-  }
-  const thead = el('thead');
-  thead.append(head);          // append() returns undefined — never chain it
-  table.append(thead);
-
-  const body = el('tbody');
-  for (const e of sweepData.entries) {
-    const row = el('tr');
-    row.append(el('td', null, e.departLabel));
-    row.append(el('td', null, e.peakPct === null ? '—' : round(e.peakPct) + '%'));
-    const bandCell = el('td');
-    bandCell.append(chip(e.peakPct));
-    row.append(bandCell);
-    row.append(el('td', null, round(e.totalMinutes) + ' min'));
-    row.append(el('td', null, round(e.perceivedMinutes) + ' min'));
-    row.append(el('td', null, String(e.transfers)));
-    body.append(row);
-  }
-  table.append(body);
-  host.append(table);
-}
-
-$('toggle-table').addEventListener('click', () => {
-  const shown = !$('table-view').hidden;
-  $('table-view').hidden = shown;
-  $('chart').hidden = !shown;
-  $('toggle-table').setAttribute('aria-expanded', String(!shown));
-  $('toggle-table').textContent = shown ? 'Table view' : 'Chart view';
-});
-
-/* ── submit ───────────────────────────────────────────────────────── */
-$('filters').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const params = new URLSearchParams({
-    from: $('from').value.trim(), to: $('to').value.trim(),
-    day: $('day').value, time: $('time').value,
-  });
-
-  $('error').hidden = true;
-  $('results').classList.add('loading');   // hold the previous render, no skeleton flash
-
-  try {
-    const [planRes, sweepRes] = await Promise.all([
-      fetch('/api/plan?' + params), fetch('/api/sweep?' + params),
-    ]);
-    const plan = await planRes.json();
-    const sweepJson = await sweepRes.json();
-    if (!planRes.ok) throw new Error(plan.error || 'Request failed');
-    if (!sweepRes.ok) throw new Error(sweepJson.error || 'Request failed');
-
-    if (plan.options.length === 0) throw new Error('No route found between those stations.');
-
-    sweepData = sweepJson;
-    selectedDepart = plan.departMinutes;
-
-    renderKpis(plan);
-    renderOptions(plan);
-    $('chart-day').textContent = `· ${sweepJson.dayType}`;
-    $('chart-caption').textContent =
-      `Same trip re-planned at every 30-minute departure. Click a bar to re-plan at that time.` +
-      (sweepJson.distinctRoutes > 1 ? ` The best route changes ${sweepJson.distinctRoutes} times across the day.` : '');
-    // Must precede renderChart: a hidden container reports clientWidth 0, so
-    // the chart would lay out at the 320px floor and then be stretched by its
-    // viewBox — oversized text and wrongly thinned axis ticks.
-    $('results').hidden = false;
-    renderChart();
-    renderTable();
-
-    const advice = sweepJson.advice;
-    $('advice').textContent = advice
-      ? `Leaving ${advice.waitMinutes} min later (${advice.bestLabel}) drops the peak from ` +
-        `${round(advice.nowPeak)}% to ${round(advice.bestPeak)}% and saves ${round(advice.perceivedSaved)} perceived min — ` +
-        (advice.worthWaiting ? 'worth waiting for.' : 'worth planning for, but not worth waiting at the station.')
-      : `Departing ${plan.departLabel} is already the calmest option within the next two hours.`;
-  } catch (err) {
-    $('error').textContent = err.message;
-    $('error').hidden = false;
-  } finally {
-    $('results').classList.remove('loading');
-  }
-});
-
-addEventListener('resize', () => renderChart());
-$('filters').requestSubmit();
-</script>
+<script type="module" src="/dist/web/main.js"></script>
 </body>
 </html>

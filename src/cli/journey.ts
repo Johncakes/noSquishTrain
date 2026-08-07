@@ -20,10 +20,11 @@
  * on a loop line the leg's endpoints cannot.
  */
 import { readFileSync } from 'node:fs';
-import { openDb } from './db.ts';
-import { formatTime, loadCongestion, normalizeDayType, parseTime } from './congestion.ts';
-import { congestionStationNo, loadStations, resolveDirection } from './stations.ts';
-import { evaluate, recommend, sweepJourney, type JourneyLeg } from './journey.ts';
+import { openDb } from '../data/db.ts';
+import { formatTime, loadCongestion, normalizeDayType, parseTime } from '../domain/congestion.ts';
+import { buildNetwork } from '../domain/network.ts';
+import { baseName } from '../domain/topology.ts';
+import { evaluate, recommend, sweepJourney, type JourneyLeg } from '../domain/journey.ts';
 
 interface LegSpec {
   line: string;
@@ -46,26 +47,31 @@ const dayType = normalizeDayType(spec.dayType ?? '평일');
 const target = parseTime(timeArg);
 
 const db = openDb();
-const stations = loadStations(db);
+const network = buildNetwork(db);
 const lookup = loadCongestion(db);
+
+const platformOn = (name: string, line: string) =>
+  network.byName.get(baseName(name.trim()))?.find((p) => p.line === line) ?? null;
 
 /** Turn the human spec into evaluable legs, resolving direction and data row. */
 let offset = 0;
 const legs: JourneyLeg[] = spec.legs.map((leg, i) => {
   if (i > 0) offset += leg.transferMinutes ?? 0;
-  const boardPlatform = stations.platform(leg.board, leg.line);
-  const nextPlatform = leg.next ? stations.platform(leg.next, leg.line) : null;
+  const board = platformOn(leg.board, leg.line);
+  const next = leg.next ? platformOn(leg.next, leg.line) : null;
 
-  // A line outside 1-8, or a station we have no row for, is uncovered — never
-  // guessed at. An unscored leg must not be able to look calm.
-  const covered = boardPlatform !== null && nextPlatform !== null;
+  // A line outside 1-8, or a hop with no track between the two stops, is
+  // uncovered — never guessed at. An unscored leg must not be able to look calm.
+  const direction = board && next ? network.hopDirection(leg.line, board.stationNo, next.stationNo) : null;
+  const covered = direction !== null;
+
   const built: JourneyLeg = {
     line: leg.line,
     boardStation: leg.board,
     alightStation: leg.alight,
-    direction: covered ? resolveDirection(leg.line, boardPlatform!.stationNo, nextPlatform!.stationNo) : null,
+    direction,
     congestionStationNo: covered
-      ? congestionStationNo(leg.line, boardPlatform!.stationNo, nextPlatform!.stationNo)
+      ? network.congestionStationNo(leg.line, board!.stationNo, next!.stationNo)
       : null,
     rideMinutes: leg.rideMinutes,
     offsetMinutes: offset,

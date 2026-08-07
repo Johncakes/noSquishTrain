@@ -1,5 +1,5 @@
 /** List every published version of the dataset, newest first. */
-import { listVersions } from './discover.ts';
+import { listVersions } from '../data/discover.ts';
 
 const versions = await listVersions();
 console.log(`${versions.length} published versions\n`);

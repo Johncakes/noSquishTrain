@@ -1,5 +1,5 @@
 /** Sanity report on whatever is currently in the DB. */
-import { openDb, getMeta } from './db.ts';
+import { openDb, getMeta } from '../data/db.ts';
 
 const db = openDb();
 

@@ -1,0 +1,21 @@
+{
+  "// note": "Browser side. tsc is the whole build: it emits native ES modules that the page loads directly, so there is no bundler and no runtime dependency. `rewriteRelativeImportExtensions` turns the .ts specifiers into .js on the way out.",
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/web/**/*.ts", "src/shared/**/*.ts"]
+}

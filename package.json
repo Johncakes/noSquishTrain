@@ -3,22 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Seoul subway congestion-aware route planner",
+  "description": "Seoul subway congestion map: 1-8호선 crowding across the service day",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "seed": "node --no-warnings=ExperimentalWarning src/seed-csv.ts",
-    "ingest": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/ingest.ts",
-    "versions": "node --no-warnings=ExperimentalWarning src/versions.ts",
-    "stats": "node --no-warnings=ExperimentalWarning src/stats.ts",
-    "typecheck": "tsc --noEmit",
-    "graph:check": "node --no-warnings=ExperimentalWarning src/graph-check.ts",
-    "route": "node --no-warnings=ExperimentalWarning src/route-cli.ts",
-    "plan": "node --no-warnings=ExperimentalWarning src/plan-cli.ts",
-    "sweep": "node --no-warnings=ExperimentalWarning src/sweep-cli.ts",
-    "serve": "node --no-warnings=ExperimentalWarning src/server.ts",
-    "journey": "node --no-warnings=ExperimentalWarning src/journey-cli.ts"
+    "seed": "node --no-warnings=ExperimentalWarning src/data/seed-csv.ts",
+    "ingest": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/data/ingest.ts",
+    "coords": "node --no-warnings=ExperimentalWarning --env-file-if-exists=.env src/cli/coords.ts",
+    "versions": "node --no-warnings=ExperimentalWarning src/cli/versions.ts",
+    "stats": "node --no-warnings=ExperimentalWarning src/cli/stats.ts",
+    "check": "node --no-warnings=ExperimentalWarning src/cli/check.ts",
+    "journey": "node --no-warnings=ExperimentalWarning src/cli/journey.ts",
+    "build": "tsc -p tsconfig.web.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.web.json --noEmit",
+    "serve": "npm run build && node --no-warnings=ExperimentalWarning src/server/index.ts"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

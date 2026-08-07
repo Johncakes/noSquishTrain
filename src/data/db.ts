@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { CongestionRow } from './normalize.ts';
 
-export const DB_PATH = join(import.meta.dirname, '..', 'data', 'congestion.db');
+export const DB_PATH = join(import.meta.dirname, '..', '..', 'data', 'congestion.db');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS congestion (

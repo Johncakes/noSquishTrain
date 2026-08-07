@@ -1,15 +1,18 @@
 {
+  "// note": "Node side. The browser side has its own config because it needs the DOM lib and, unlike this, actually emits.",
   "compilerOptions": {
     "target": "esnext",
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "lib": ["esnext"],
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/cli/**/*.ts", "src/data/**/*.ts", "src/domain/**/*.ts", "src/server/**/*.ts", "src/shared/**/*.ts"]
 }

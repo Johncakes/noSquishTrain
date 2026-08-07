@@ -1,0 +1,337 @@
+/*
+ * Roles, not raw hex, so light and dark swap in one place.
+ *
+ * The five band colours are a single-hue blue ramp (magnitude, so sequential),
+ * validated with the dataviz ordinal checks against each mode's own surface:
+ * monotone lightness, adjacent dL >= 0.06, and the step nearest the surface
+ * still clearing 2:1. The dark column is not an inversion of the light one —
+ * it is the same hue re-stepped for a dark surface, with the anchor flipped so
+ * "empty" recedes toward the background in both modes.
+ */
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --border: rgba(11, 11, 11, 0.10);
+  --grid: #e1e0d9;
+
+  /* congestion ramp — blue 250/350/450/550/650 */
+  --band-0: #86b6ef;
+  --band-1: #5598e7;
+  --band-2: #2a78d6;
+  --band-3: #1c5cab;
+  --band-4: #104281;
+
+  --track: #d5d4cc;
+  --no-data: #898781;
+  --focus: #2a78d6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --border: rgba(255, 255, 255, 0.10);
+    --grid: #2c2c2a;
+
+    /* blue 600/500/400/300/200 — anchor flipped: empty is darkest */
+    --band-0: #184f95;
+    --band-1: #256abf;
+    --band-2: #3987e5;
+    --band-3: #6da7ec;
+    --band-4: #9ec5f4;
+
+    --track: #303030;
+    --no-data: #898781;
+    --focus: #3987e5;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --border: rgba(255, 255, 255, 0.10);
+  --grid: #2c2c2a;
+  --band-0: #184f95;
+  --band-1: #256abf;
+  --band-2: #3987e5;
+  --band-3: #6da7ec;
+  --band-4: #9ec5f4;
+  --track: #303030;
+  --no-data: #898781;
+  --focus: #3987e5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  /* Station names, line names and the day-type labels are all Hangul, so the
+     Korean faces have to be in the stack — system-ui alone falls back to tofu
+     on systems without a Korean default. */
+  font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic',
+        'Apple SD Gothic Neo', 'Noto Sans KR', 'Nanum Gothic', sans-serif;
+  display: flex;
+  flex-direction: column;
+  /* The map is the point, so the whole thing fits the window and the map takes
+     whatever is left over — the legend must never fall below the fold. */
+  height: 100dvh;
+  overflow: hidden;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.provenance {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 20px 0;
+  gap: 10px;
+}
+
+/* --- controls ------------------------------------------------------------ */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+select, button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+button:hover, select:hover { border-color: var(--text-muted); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+button[aria-pressed="true"] {
+  background: var(--band-2);
+  border-color: var(--band-2);
+  color: #ffffff;
+}
+
+.play {
+  width: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+/* --- timeline ------------------------------------------------------------ */
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.timeline input[type="range"] {
+  flex: 1;
+  accent-color: var(--band-2);
+  min-width: 160px;
+}
+
+.clock {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 68px;
+}
+
+.peak-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-width: 0;
+  margin: 0;
+  flex: none;
+}
+
+/* --- map ----------------------------------------------------------------- */
+
+.map-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#map.panning { cursor: grabbing; }
+
+.track { stroke: var(--track); stroke-width: 1.6; fill: none; stroke-linecap: round; }
+
+/* The dot halves are painted; the hit circle above them takes the pointer. */
+.half { stroke: var(--surface-1); stroke-width: 0.6; pointer-events: none; }
+.half-empty { fill: none; stroke: var(--track); stroke-width: 0.8; pointer-events: none; }
+.hit { fill: transparent; cursor: pointer; }
+.station-ring { fill: none; stroke: var(--text-primary); stroke-width: 1.6; pointer-events: none; }
+
+.zoom-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.zoom-buttons {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.zoom-buttons button { width: 30px; padding: 4px 0; text-align: center; }
+
+/* --- tooltip ------------------------------------------------------------- */
+
+#tooltip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  max-width: 260px;
+}
+
+#tooltip[hidden] { display: none; }
+#tooltip .tt-title { font-weight: 600; margin-bottom: 4px; }
+#tooltip .tt-line { color: var(--text-muted); font-weight: 400; }
+
+#tooltip dl {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 2px 8px;
+  margin: 0;
+  align-items: center;
+}
+
+#tooltip .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+#tooltip .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+#tooltip .band { color: var(--text-secondary); }
+
+/* --- legend -------------------------------------------------------------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 8px 0 4px;
+  font-size: 12px;
+  flex: none;
+}
+
+.ramp { display: flex; align-items: center; gap: 2px; }
+
+.ramp-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.ramp-swatch { width: 46px; height: 12px; border-radius: 2px; }
+.ramp-label { color: var(--text-secondary); white-space: nowrap; }
+.ramp-bound { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.legend-key { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+
+/* --- table view ---------------------------------------------------------- */
+
+.table-wrap { max-height: 320px; flex: none; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.table-wrap[hidden] { display: none; }
+
+table { border-collapse: collapse; width: 100%; font-size: 12px; background: var(--surface-1); }
+caption { text-align: left; padding: 8px 10px; color: var(--text-secondary); }
+th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--grid); }
+th { position: sticky; top: 0; background: var(--surface-1); font-weight: 600; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.none { color: var(--text-muted); }
+
+footer {
+  flex: none;
+  padding: 8px 20px 10px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  border-top: 1px solid var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .half { transition: none; }
+}
