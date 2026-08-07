@@ -2,9 +2,9 @@
  * The network map.
  *
  * Built once as SVG, then only repainted: changing the time re-sets `fill` on
- * up to 554 half-discs and touches nothing else. That is what keeps the
- * timeline responsive while dragging and lets the animation run without
- * rebuilding any geometry.
+ * the visible marks and touches nothing else. That is what keeps the timeline
+ * responsive while dragging and lets the animation run without rebuilding any
+ * geometry.
  *
  * In 양방향 mode each station is one dot split down the middle — left half the
  * decreasing-역번호 direction (상선/외선), right half the increasing one
@@ -107,9 +107,12 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
 
   // --- station dots ------------------------------------------------------
   //
-  // Both halves always exist. Which direction each shows depends on the mode,
-  // so the geometry never has to be rebuilt when the mode changes.
-  const halves: [SVGPathElement, SVGPathElement][] = [];
+  // Every station carries three marks and shows either the two halves or the
+  // whole circle. Two stroked half-discs would draw their shared diameter
+  // twice, leaving a line down the middle of what should be one solid dot —
+  // so a single direction gets a real <circle> rather than two halves painted
+  // the same colour. Both are built once; switching mode only toggles display.
+  const dots: { left: SVGPathElement; right: SVGPathElement; full: SVGCircleElement }[] = [];
   const groups: SVGGElement[] = [];
   const hits: SVGCircleElement[] = [];
 
@@ -122,11 +125,16 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
     left.setAttribute('d', halfDiscPath(DOT_R, 'left'));
     const right = el('path');
     right.setAttribute('d', halfDiscPath(DOT_R, 'right'));
-    group.append(left, right);
+
+    const full = el('circle');
+    full.setAttribute('r', String(DOT_R));
+    full.style.display = 'none';
+
+    group.append(left, right, full);
 
     dotLayer.append(group);
     groups.push(group);
-    halves.push([left, right]);
+    dots.push({ left, right, full });
 
     const hit = el('circle');
     hit.setAttribute('cx', String(px(i) + dx));
@@ -141,40 +149,43 @@ export function createMap(svg: SVGSVGElement, network: NetworkPayload): MapView 
   // --- painting ----------------------------------------------------------
 
   /**
-   * Paint one half. `served` false means no train runs that way at all — a
+   * Paint one mark. `served` false means no train runs that way at all — a
    * dashed outline, which is not the same as a measurement that is missing
    * (that is a filled grey dot).
    */
-  function setHalf(path: SVGPathElement, served: boolean, pct: number | null): void {
+  function setMark(node: SVGElement, served: boolean, pct: number | null): void {
     if (!served) {
-      path.setAttribute('class', 'half-empty');
-      path.removeAttribute('fill');
+      node.setAttribute('class', 'half-empty');
+      node.removeAttribute('fill');
       return;
     }
-    path.setAttribute('class', 'half');
-    path.setAttribute('fill', bandColorVar(pct));
+    node.setAttribute('class', 'half');
+    node.setAttribute('fill', bandColorVar(pct));
   }
 
   function paint(values: (number | null)[][][], bucketIndex: number, mode: DirectionMode): void {
-    for (let i = 0; i < halves.length; i++) {
+    const both = mode === 'both';
+
+    for (let i = 0; i < dots.length; i++) {
       const platform = network.platforms[i];
       const perDirection = values[i];
-      const [left, right] = halves[i];
+      const { left, right, full } = dots[i];
 
-      if (mode === 'both') {
+      left.style.display = both ? '' : 'none';
+      right.style.display = both ? '' : 'none';
+      full.style.display = both ? 'none' : '';
+
+      if (both) {
         for (const [slot, path] of ([left, right] as const).entries()) {
           const served = platform.directions[slot] !== undefined;
-          setHalf(path, served, perDirection?.[slot]?.[bucketIndex] ?? null);
+          setMark(path, served, perDirection?.[slot]?.[bucketIndex] ?? null);
         }
         continue;
       }
 
-      // One direction: fill the whole dot with it, so a station reads as a
-      // single value instead of asking the eye to average two halves.
-      const served = platform.directions[mode] !== undefined;
-      const pct = perDirection?.[mode]?.[bucketIndex] ?? null;
-      setHalf(left, served, pct);
-      setHalf(right, served, pct);
+      // One direction: one solid circle, so a station reads as a single value
+      // instead of asking the eye to average two halves.
+      setMark(full, platform.directions[mode] !== undefined, perDirection?.[mode]?.[bucketIndex] ?? null);
     }
   }
 

@@ -12,11 +12,14 @@
  * 1.05:1 on the light surface, because "여유 is white" is the point. An
  * invisible dot would be indistinguishable from no station at all, so every
  * dot carries a hairline outline (--dot-edge, 3.5:1) as the relief channel.
- * That outline also draws the diameter between the two halves, which is what
- * makes the split dot readable. The table view is the second relief channel.
+ * The table view is the second relief channel.
  *
- * The dark column is not an inversion — same hue re-stepped for the dark
- * surface, anchor flipped so "empty" recedes toward the background in both.
+ * Dark mode uses the SAME five steps rather than re-anchoring them, chosen
+ * deliberately: 여유 reads white in both themes, so the scale means one thing
+ * everywhere. The cost is that the anchor no longer recedes on a dark surface
+ * — band 4 (#b91c1e) measures 2.69:1 against it while band 0 measures 16.1:1, so
+ * the most crowded stations are the quietest marks and empty ones glow. Swapping
+ * the dark block back to a flipped ramp is a five-line change if that grates.
  *
  * LINE COLOURS are the official 서울교통공사 palette, a second colour system
  * doing a different job (identity, on the track) from the ramp (magnitude, on
@@ -66,12 +69,12 @@
     --border: rgba(255, 255, 255, 0.10);
     --grid: #2c2c2a;
 
-    /* same hue re-stepped for the dark surface, anchor flipped */
-    --band-0: #462622;
-    --band-1: #852f29;
-    --band-2: #c33530;
-    --band-3: #f0574e;
-    --band-4: #ff9387;
+    /* same five steps as light — 여유 reads white in both themes */
+    --band-0: #fff4f2;
+    --band-1: #ffcbc4;
+    --band-2: #ff9387;
+    --band-3: #eb5249;
+    --band-4: #b91c1e;
 
     --dot-edge: #898781;
     --no-data: #5a5954;
@@ -98,11 +101,14 @@
   --text-muted: #898781;
   --border: rgba(255, 255, 255, 0.10);
   --grid: #2c2c2a;
-  --band-0: #462622;
-  --band-1: #852f29;
-  --band-2: #c33530;
-  --band-3: #f0574e;
-  --band-4: #ff9387;
+  /* Must stay identical to the media-query block above — this scope wins when
+     a theme is stamped on the root, and a divergence would mean the toggle
+     silently changed what the colours mean. */
+  --band-0: #fff4f2;
+  --band-1: #ffcbc4;
+  --band-2: #ff9387;
+  --band-3: #eb5249;
+  --band-4: #b91c1e;
   --dot-edge: #898781;
   --no-data: #5a5954;
   --focus: #3987e5;
@@ -117,7 +123,9 @@
   --line-8: #f0508e;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
@@ -127,7 +135,7 @@ body {
      Korean faces have to be in the stack — system-ui alone falls back to tofu
      on systems without a Korean default. */
   font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic',
-        'Apple SD Gothic Neo', 'Noto Sans KR', 'Nanum Gothic', sans-serif;
+    'Apple SD Gothic Neo', 'Noto Sans KR', 'Nanum Gothic', sans-serif;
   display: flex;
   flex-direction: column;
   /* The map is the point, so the whole thing fits the window and the map takes
@@ -191,7 +199,8 @@ label {
   white-space: nowrap;
 }
 
-select, button {
+select,
+button {
   font: inherit;
   font-size: 13px;
   color: var(--text-primary);
@@ -202,8 +211,15 @@ select, button {
   cursor: pointer;
 }
 
-button:hover, select:hover { border-color: var(--text-muted); }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button:hover,
+select:hover {
+  border-color: var(--text-muted);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 
 button[aria-pressed="true"] {
   background: var(--focus);
@@ -262,28 +278,87 @@ button[aria-pressed="true"] {
   overflow: hidden;
 }
 
-#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
-#map.panning { cursor: grabbing; }
+#map {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+#map.panning {
+  cursor: grabbing;
+}
 
 /* Track wears line identity; kept thin and translucent so it stays reference
    geometry rather than competing with the dots for attention. */
-.track { stroke-width: 1.8; fill: none; stroke-linecap: round; opacity: var(--track-opacity); }
-.track-1 { stroke: var(--line-1); }
-.track-2 { stroke: var(--line-2); }
-.track-3 { stroke: var(--line-3); }
-.track-4 { stroke: var(--line-4); }
-.track-5 { stroke: var(--line-5); }
-.track-6 { stroke: var(--line-6); }
-.track-7 { stroke: var(--line-7); }
-.track-8 { stroke: var(--line-8); }
+.track {
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  opacity: var(--track-opacity);
+}
+
+.track-1 {
+  stroke: var(--line-1);
+}
+
+.track-2 {
+  stroke: var(--line-2);
+}
+
+.track-3 {
+  stroke: var(--line-3);
+}
+
+.track-4 {
+  stroke: var(--line-4);
+}
+
+.track-5 {
+  stroke: var(--line-5);
+}
+
+.track-6 {
+  stroke: var(--line-6);
+}
+
+.track-7 {
+  stroke: var(--line-7);
+}
+
+.track-8 {
+  stroke: var(--line-8);
+}
 
 /* The dot halves are painted; the hit circle above them takes the pointer.
    The outline is load-bearing: it keeps a white "여유" dot visible and draws
    the divider that separates 상행 from 하행. */
-.half { stroke: var(--dot-edge); stroke-width: 0.7; pointer-events: none; }
-.half-empty { fill: none; stroke: var(--dot-edge); stroke-width: 0.7; stroke-dasharray: 1.4 1.4; pointer-events: none; }
-.hit { fill: transparent; cursor: pointer; }
-.station-ring { fill: none; stroke: var(--text-primary); stroke-width: 1.6; pointer-events: none; }
+.half {
+  stroke: var(--dot-edge);
+  stroke-width: 0.7;
+  pointer-events: none;
+}
+
+.half-empty {
+  fill: none;
+  stroke: var(--dot-edge);
+  stroke-width: 0.7;
+  stroke-dasharray: 1.4 1.4;
+  pointer-events: none;
+}
+
+.hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.station-ring {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 1.6;
+  pointer-events: none;
+}
 
 .zoom-hint {
   position: absolute;
@@ -302,7 +377,11 @@ button[aria-pressed="true"] {
   gap: 6px;
 }
 
-.zoom-buttons button { width: 30px; padding: 4px 0; text-align: center; }
+.zoom-buttons button {
+  width: 30px;
+  padding: 4px 0;
+  text-align: center;
+}
 
 /* --- tooltip ------------------------------------------------------------- */
 
@@ -319,9 +398,19 @@ button[aria-pressed="true"] {
   max-width: 260px;
 }
 
-#tooltip[hidden] { display: none; }
-#tooltip .tt-title { font-weight: 600; margin-bottom: 4px; }
-#tooltip .tt-line { color: var(--text-muted); font-weight: 400; }
+#tooltip[hidden] {
+  display: none;
+}
+
+#tooltip .tt-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+#tooltip .tt-line {
+  color: var(--text-muted);
+  font-weight: 400;
+}
 
 #tooltip dl {
   display: grid;
@@ -338,8 +427,14 @@ button[aria-pressed="true"] {
   display: inline-block;
 }
 
-#tooltip .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
-#tooltip .band { color: var(--text-secondary); }
+#tooltip .pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+#tooltip .band {
+  color: var(--text-secondary);
+}
 
 /* --- legend -------------------------------------------------------------- */
 
@@ -353,7 +448,11 @@ button[aria-pressed="true"] {
   flex: none;
 }
 
-.ramp { display: flex; align-items: center; gap: 2px; }
+.ramp {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 
 .ramp-step {
   display: flex;
@@ -362,23 +461,79 @@ button[aria-pressed="true"] {
   gap: 3px;
 }
 
-.ramp-swatch { width: 46px; height: 12px; border-radius: 2px; border: 1px solid var(--dot-edge); }
-.ramp-label { color: var(--text-secondary); white-space: nowrap; }
-.ramp-bound { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ramp-swatch {
+  width: 46px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--dot-edge);
+}
 
-.legend-key { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+.ramp-label {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ramp-bound {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
 
 /* --- table view ---------------------------------------------------------- */
 
-.table-wrap { max-height: 320px; flex: none; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
-.table-wrap[hidden] { display: none; }
+.table-wrap {
+  max-height: 320px;
+  flex: none;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 
-table { border-collapse: collapse; width: 100%; font-size: 12px; background: var(--surface-1); }
-caption { text-align: left; padding: 8px 10px; color: var(--text-secondary); }
-th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--grid); }
-th { position: sticky; top: 0; background: var(--surface-1); font-weight: 600; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.none { color: var(--text-muted); }
+.table-wrap[hidden] {
+  display: none;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  background: var(--surface-1);
+}
+
+caption {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+}
+
+th,
+td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--grid);
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  font-weight: 600;
+}
+
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.none {
+  color: var(--text-muted);
+}
 
 footer {
   flex: none;
@@ -390,5 +545,7 @@ footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .half { transition: none; }
+  .half {
+    transition: none;
+  }
 }
