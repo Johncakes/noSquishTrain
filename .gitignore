@@ -4,7 +4,10 @@ data/*.db-wal
 data/*.db-shm
 raw/
 .env
-dist/
+
+# Compiled browser modules. The host runs `npm run build` itself — tsc needs no
+# database — so this is the one part of public/ that stays out of git.
+public/dist/
 
 # The 9호선 spreadsheet is hand-downloaded and has no API to re-fetch it from,
 # so unlike the cached API responses it is the only copy — keep it.

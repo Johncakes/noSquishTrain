@@ -23,8 +23,11 @@ export function createTimeline(
   clock: HTMLElement,
   playButton: HTMLButtonElement,
   buckets: readonly number[],
+  /** Where the scrubber starts. Passed in rather than defaulted to 05:30 so the
+   * page can open at whatever time it currently is in Seoul. */
+  startIndex = 0,
 ): Timeline {
-  let current = 0;
+  let current = Math.min(buckets.length - 1, Math.max(0, startIndex));
   let timer: number | null = null;
   let handler: (index: number) => void = () => {};
 
