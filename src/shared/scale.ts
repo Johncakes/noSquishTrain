@@ -68,3 +68,14 @@ export function formatClock(minutes: number): string {
 
 export const DAY_TYPES = ['평일', '토요일', '일요일'] as const;
 export type DayType = (typeof DAY_TYPES)[number];
+
+/**
+ * Filename-safe names for the day types, because each one ships as its own
+ * static JSON file. ASCII rather than the Korean labels: the label is what the
+ * page shows, the slug is what a URL and a filesystem have to agree on.
+ */
+export const DAY_SLUGS: Record<DayType, string> = {
+  평일: 'weekday',
+  토요일: 'saturday',
+  일요일: 'sunday',
+};

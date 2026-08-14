@@ -10,7 +10,7 @@ It is a **data visualisation tool**, not a service. It answers "what was
 measured", never "what should you do". That distinction was arrived at the hard
 way — see the pivots below.
 
-Single user, run locally, not deployed.
+Single user. Runs locally against the database; deploys as a static site.
 
 ## Current state (2026-08-07)
 
@@ -23,16 +23,44 @@ Single user, run locally, not deployed.
 ```
 src/
   data/     fetching and storing      db, discover, ingest, normalize,
-                                      seed-csv, coords, xlsx, line9
+                                      seed-csv, coords, xlsx, line9, basemap
   domain/   what the data means       congestion, network, topology, geo, journey
-  server/   one process               index
-  cli/      entry points              check, coords, line9, stats, versions, journey
+  server/   payloads, and one process payload, index
+  cli/      entry points              check, coords, line9, stats, versions,
+                                      journey, basemap, export
   shared/   compiled for both sides   scale, types
-  web/      typed ES modules          main, map, timeline, legend, styles.css
+  web/      typed ES modules          main, map, timeline, legend
+public/     the web root              index.html, styles.css, api/*.json, dist/
 ```
 
-`tsc` is the entire front-end build (`tsconfig.web.json` → `dist/`). The browser
-loads native ES modules and imports the same thresholds the server uses.
+`tsc` is the entire front-end build (`tsconfig.web.json` → `public/dist/`). The
+browser loads native ES modules and imports the same thresholds the server uses.
+
+## Deploying
+
+The site is static. Nothing about a request changes the answer — the page asks
+for four files and the data moves once a quarter — so there is no server in
+production, no database in production, and nothing that can crash on a request.
+
+`server/payload.ts` builds both payloads from the database. `npm run serve`
+holds them in memory; `npm run export` writes them to `public/api/*.json`. Both
+serve the same URLs, so a path that works locally works deployed.
+
+The database is 16 MB and gitignored, so the host cannot build the JSON — the
+generated `public/api/*.json` (613 KB) is committed instead, and is the one
+build artifact in git. `public/dist/` is not: `tsc` needs no database, so the
+host runs `npm run build` itself. `vercel.json` sets that, with `public` as the
+output directory.
+
+Publishing after a data refresh: `npm run site`, commit `public/api/`, push.
+
+The first attempt deployed the Node server as a Vercel function and crashed on
+every request: it opens the database at module scope and calls `listen()`, and
+neither the database nor a listening socket exists there. Hosting a real
+database was considered and rejected — it would mean rewriting the synchronous
+`node:sqlite` calls as async network queries, rebuilding 65k numbers on every
+cold start, and paying for a store that returns identical bytes for three
+months at a time.
 
 ## How it got here
 

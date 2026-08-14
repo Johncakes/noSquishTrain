@@ -118,6 +118,7 @@ npm run line9      # 9호선, from raw/*.xlsx
 npm run coords     # station coordinates
 npm run check      # validate before trusting any of it
 npm run serve      # builds the front end, then serves on :8137
+npm run site       # rebuild public/api/*.json, then commit it to publish
 ```
 
 Order matters only in that `coords` reads the station list out of the congestion

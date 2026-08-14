@@ -4,7 +4,21 @@
  * Imported by both sides, so a field renamed on the server fails to compile in
  * the page rather than silently arriving as undefined.
  */
+import { DAY_SLUGS } from './scale.ts';
 import type { DayType } from './scale.ts';
+
+/**
+ * Where the payloads live. Declared here beside the shapes they carry, so the
+ * page, the local server and the export cannot disagree about a URL.
+ *
+ * They are plain files under the web root rather than endpoints: nothing about
+ * them depends on the request, so nothing has to run to answer one.
+ */
+export const NETWORK_PATH = '/api/network.json';
+
+export function congestionPath(dayType: DayType): string {
+  return `/api/congestion-${DAY_SLUGS[dayType]}.json`;
+}
 
 /** A platform placed on the map. Sent once; never changes with time. */
 export interface WirePlatform {
@@ -43,6 +57,19 @@ export interface WireSegment {
   b: number;
 }
 
+/**
+ * A backdrop ring, projected into the SAME 0..1 space as WirePlatform.x/y.
+ *
+ * Projecting on the server rather than shipping lon/lat is what guarantees the
+ * backdrop lines up with the dots: both go through the one projection built
+ * from the station coordinates, so there is no second transform in the page
+ * that could drift from it.
+ */
+export interface WireShape {
+  kind: 'water' | 'district';
+  points: [number, number][];
+}
+
 export interface NetworkPayload {
   /** Period of the lines 1-8 source. */
   quarter: string | null;
@@ -56,6 +83,8 @@ export interface NetworkPayload {
   buckets: readonly number[];
   platforms: WirePlatform[];
   segments: WireSegment[];
+  /** Water and administrative boundaries. Empty until `npm run basemap` runs. */
+  basemap: WireShape[];
 }
 
 /**

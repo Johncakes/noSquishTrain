@@ -48,6 +48,12 @@
   --focus: #2a78d6;
   --track-opacity: 0.55;
 
+  /* Backdrop. A third colour system, and the one that must lose every fight:
+     it is there so the network sits somewhere rather than floating, so it is
+     kept to a whisper against the surface and carries no magnitude at all. */
+  --water: #e4ecf2;
+  --boundary: rgba(11, 11, 11, 0.13);
+
   --line-1: #0052a4;
   --line-2: #00a84d;
   --line-3: #ef7c1c;
@@ -84,6 +90,8 @@
     --no-data: #5a5954;
     --focus: #3987e5;
     --track-opacity: 0.75;
+    --water: #1d262e;
+    --boundary: rgba(255, 255, 255, 0.11);
 
     --line-1: #4a8bd0;
     --line-2: #2fc46f;
@@ -118,6 +126,8 @@
   --no-data: #5a5954;
   --focus: #3987e5;
   --track-opacity: 0.75;
+  --water: #1d262e;
+  --boundary: rgba(255, 255, 255, 0.11);
   --line-1: #4a8bd0;
   --line-2: #2fc46f;
   --line-3: #f5964a;
@@ -277,7 +287,10 @@ button[aria-pressed="true"] {
 .map-wrap {
   position: relative;
   flex: 1;
-  min-height: 240px;
+  /* The network is 0.79 as tall as it is wide, so in any container wider than
+     that the fit is decided by HEIGHT. Starving this box starves the whole
+     map, which is why the floor is a readable size rather than a token one. */
+  min-height: 340px;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -288,12 +301,36 @@ button[aria-pressed="true"] {
   display: block;
   width: 100%;
   height: 100%;
-  touch-action: none;
+  /* pan-y, not none: the map fills most of a phone screen, so swallowing every
+     touch gesture meant a swipe that started on the map could not scroll the
+     page at all. The browser keeps the vertical swipe; two fingers pan and
+     pinch the map, which map.ts handles. */
+  touch-action: pan-y;
   cursor: grab;
 }
 
 #map.panning {
   cursor: grabbing;
+}
+
+/* Backdrop: the 한강 and the 구/시 boundaries. Both are pointer-transparent so
+   they can never swallow a station's hit target, and both are drawn beneath
+   the track. Water is fill-only and boundaries stroke-only — a filled district
+   mesh would tile the whole map in flat colour and bury the ramp. */
+.water,
+.district {
+  pointer-events: none;
+}
+
+.water {
+  fill: var(--water);
+  stroke: none;
+}
+
+.district {
+  fill: none;
+  stroke: var(--boundary);
+  stroke-linejoin: round;
 }
 
 /* Track wears line identity; kept thin and translucent so it stays reference
@@ -579,6 +616,82 @@ footer {
   font-size: 11.5px;
   line-height: 1.45;
   border-top: 1px solid var(--border);
+}
+
+/* --- small screens ------------------------------------------------------- */
+
+/*
+ * The one-screen layout above is a luxury of a large window: it pins the page
+ * to 100dvh so the legend can never fall below the fold. On a small or short
+ * window it inverts — the controls wrap to three or four rows, the legend and
+ * the footer take their cut, and the map is left with the 340px floor inside a
+ * `main` that scrolls. The reader then scrolls a box inside a page that itself
+ * cannot scroll, which is the worst of both.
+ *
+ * So below this size the page becomes an ordinary document: it scrolls, and
+ * the map gets a height worth looking at rather than the leftovers.
+ */
+@media (max-width: 860px), (max-height: 720px) {
+  body {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  main {
+    overflow: visible;
+    padding: 12px 14px 0;
+  }
+
+  /*
+   * Match the box to the network's own proportions.
+   *
+   * preserveAspectRatio="meet" fits the whole network inside the box and
+   * centres it, so any box that is not 1000:790 pays for the mismatch in empty
+   * margin. On a 390px phone a 68vh box was 360x572 holding a 360x284 map —
+   * half the panel was letterbox, and shrinking the box costs nothing because
+   * the network is width-bound either way.
+   */
+  .map-wrap {
+    flex: none;
+    height: auto;
+    aspect-ratio: 1000 / 790;
+    /* Bound by height as well as width, or a wide-but-short window (1280x680
+       catches this rule on max-height) derives a 987px-tall box and the map
+       no longer fits on the screen at all. Capping the width at the height
+       the viewport can afford keeps the box on-screen AND letterbox-free. */
+    width: min(100%, calc(76vh * 1000 / 790));
+    margin-inline: auto;
+    min-height: 0;
+  }
+
+  header,
+  footer {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Pushed to its own row: at this width it was squeezing the day/direction
+     selects onto a line of their own anyway. */
+  .timeline {
+    flex-basis: 100%;
+  }
+
+  .provenance {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+
+  .table-wrap {
+    max-height: none;
+  }
+
+  /* At this width the hint wraps to two lines and lies across the middle of
+     the network. The gestures it describes are either the platform default
+     (pinch) or have a visible button beside it, so the map is worth more. */
+  .zoom-hint {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

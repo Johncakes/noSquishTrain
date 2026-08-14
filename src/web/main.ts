@@ -5,7 +5,7 @@
  * screen is a function of those, which is why this needs no framework.
  */
 import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, type DayType } from '../shared/scale.ts';
-import { SERVICE_SLOTS } from '../shared/types.ts';
+import { NETWORK_PATH, SERVICE_SLOTS, congestionPath } from '../shared/types.ts';
 import type { CongestionPayload, NetworkPayload } from '../shared/types.ts';
 import { createMap, readingFor, type DirectionMode, type MapView, type ServiceMode } from './map.ts';
 import { createTimeline } from './timeline.ts';
@@ -26,7 +26,7 @@ async function getJSON<T>(url: string): Promise<T> {
 }
 
 async function boot(): Promise<void> {
-  const network = await getJSON<NetworkPayload>('/api/network');
+  const network = await getJSON<NetworkPayload>(NETWORK_PATH);
 
   // Two congestion sources measured in different periods, so both are named
   // rather than implying one date covers the whole map.
@@ -39,7 +39,7 @@ async function boot(): Promise<void> {
   const loadDay = async (day: DayType): Promise<CongestionPayload> => {
     const hit = cache.get(day);
     if (hit) return hit;
-    const payload = await getJSON<CongestionPayload>(`/api/congestion?day=${encodeURIComponent(day)}`);
+    const payload = await getJSON<CongestionPayload>(congestionPath(day));
     cache.set(day, payload);
     return payload;
   };
