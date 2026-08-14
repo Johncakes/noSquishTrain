@@ -4,7 +4,7 @@
  * State is three values — time bucket, day type, line filter. Everything on
  * screen is a function of those, which is why this needs no framework.
  */
-import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, openingBucketIndex, seoulNowMinutes, type DayType } from '../shared/scale.ts';
+import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, opening, type DayType } from '../shared/scale.ts';
 import { NETWORK_PATH, SERVICE_SLOTS, congestionPath } from '../shared/types.ts';
 import type { CongestionPayload, NetworkPayload } from '../shared/types.ts';
 import { createMap, readingFor, type DirectionMode, type MapView, type ServiceMode } from './map.ts';
@@ -34,6 +34,12 @@ async function boot(): Promise<void> {
     `1–8호선 ${network.quarter ?? '?'} · 9호선 ${network.line9Period ?? '?'} · ` +
     `좌표 ${network.coordsVersion ?? '?'} · ${network.platforms.length} platforms`;
 
+  // One read of the Seoul clock, decided once: which day's readings to load and
+  // where the timeline starts have to agree, and asking twice invites them not
+  // to — a page opened a second either side of midnight would answer each half
+  // from a different service day.
+  const start = opening(new Date(), network.buckets);
+
   // Day-type payloads are cached after first fetch; there are only three.
   const cache = new Map<DayType, CongestionPayload>();
   const loadDay = async (day: DayType): Promise<CongestionPayload> => {
@@ -53,6 +59,7 @@ async function boot(): Promise<void> {
     option.textContent = day;
     daySelect.append(option);
   }
+  daySelect.value = start.dayType;
 
   // Built from BANDS rather than hard-coded in the HTML, so the options can
   // never drift from the thresholds the colours actually use.
@@ -73,7 +80,7 @@ async function boot(): Promise<void> {
     lineSelect.append(option);
   }
 
-  let current = await loadDay('평일');
+  let current = await loadDay(start.dayType);
   let lineFilter: string | null = null;
   let directionMode: DirectionMode = 'both';
   /** Band index to emphasise, or null for "show every reading solid". */
@@ -81,16 +88,12 @@ async function boot(): Promise<void> {
   /** Which train: the worst service running here, or a named one. */
   let serviceMode: ServiceMode = 'worst';
 
-  // Open on now in Seoul, or on the 08:00 peak in the small hours when there is
-  // no now to show. The first thing anyone asks a map like this is how bad it
-  // is at this moment, and 05:30 is nobody's question — it is only where the
-  // data starts.
   const timeline = createTimeline(
     $<HTMLInputElement>('slider'),
     $('clock'),
     $<HTMLButtonElement>('play'),
     network.buckets,
-    openingBucketIndex(seoulNowMinutes(), network.buckets),
+    start.bucketIndex,
   );
 
   const tooltip = $('tooltip');
