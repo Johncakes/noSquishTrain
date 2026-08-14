@@ -60,6 +60,64 @@ export const BUCKETS: readonly number[] = Array.from(
   (_, i) => FIRST_BUCKET + i * BUCKET_STEP,
 );
 
+/**
+ * Minutes from midnight in Seoul, wherever the reader happens to be.
+ *
+ * The map is of Seoul, so the reader's own clock is the wrong one — opening it
+ * from London at 09:00 should show the Seoul evening it actually is there, not
+ * a Seoul morning that is nine hours past.
+ */
+export function seoulNowMinutes(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Seoul',
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(now);
+  const part = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return part('hour') * 60 + part('minute');
+}
+
+/**
+ * The published bucket covering a clock reading, or null when no train is
+ * running — 02:00 has no measurement and never will.
+ *
+ * The service day runs past midnight — 00:30 is 1470, not 30 — so a reading in
+ * the small hours is measured both as itself and as the tail of the day before,
+ * and whichever falls nearer the published range wins. Covering means within
+ * half a bucket, which is what makes 05:20 the 05:30 reading and 03:00 nothing
+ * at all.
+ */
+export function bucketIndexAt(minutes: number, buckets: readonly number[] = BUCKETS): number | null {
+  const first = buckets[0];
+  const last = buckets[buckets.length - 1];
+  const outside = (m: number): number => Math.max(0, first - m) + Math.max(0, m - last);
+  const candidate = outside(minutes) <= outside(minutes + 1440) ? minutes : minutes + 1440;
+
+  let best = 0;
+  for (let i = 1; i < buckets.length; i++) {
+    if (Math.abs(buckets[i] - candidate) < Math.abs(buckets[best] - candidate)) best = i;
+  }
+  return Math.abs(buckets[best] - candidate) <= BUCKET_STEP / 2 ? best : null;
+}
+
+/** The morning peak, which is the reason to look at this at all. */
+export const PEAK_BUCKET = 480;
+
+/**
+ * Where the timeline should open: now, or the morning peak when nothing is
+ * running.
+ *
+ * Now is what anyone actually asks of a map like this. But between 01:00 and
+ * 05:00 there is no now to show, and an empty map is a worse first impression
+ * than a busy one — so the small hours open on 08:00 rather than on nothing.
+ */
+export function openingBucketIndex(minutes: number, buckets: readonly number[] = BUCKETS): number {
+  const now = bucketIndexAt(minutes, buckets);
+  if (now !== null) return now;
+  return Math.max(0, buckets.indexOf(PEAK_BUCKET));
+}
+
 /** Minutes-from-midnight to 'HH:MM'. Values past 1440 wrap to the small hours. */
 export function formatClock(minutes: number): string {
   const m = ((minutes % 1440) + 1440) % 1440;

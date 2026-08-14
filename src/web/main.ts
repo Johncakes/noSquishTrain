@@ -4,7 +4,7 @@
  * State is three values — time bucket, day type, line filter. Everything on
  * screen is a function of those, which is why this needs no framework.
  */
-import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, type DayType } from '../shared/scale.ts';
+import { BANDS, DAY_TYPES, bandColorVar, bandIndex, bandLabel, formatClock, openingBucketIndex, seoulNowMinutes, type DayType } from '../shared/scale.ts';
 import { NETWORK_PATH, SERVICE_SLOTS, congestionPath } from '../shared/types.ts';
 import type { CongestionPayload, NetworkPayload } from '../shared/types.ts';
 import { createMap, readingFor, type DirectionMode, type MapView, type ServiceMode } from './map.ts';
@@ -81,11 +81,16 @@ async function boot(): Promise<void> {
   /** Which train: the worst service running here, or a named one. */
   let serviceMode: ServiceMode = 'worst';
 
+  // Open on now in Seoul, or on the 08:00 peak in the small hours when there is
+  // no now to show. The first thing anyone asks a map like this is how bad it
+  // is at this moment, and 05:30 is nobody's question — it is only where the
+  // data starts.
   const timeline = createTimeline(
     $<HTMLInputElement>('slider'),
     $('clock'),
     $<HTMLButtonElement>('play'),
     network.buckets,
+    openingBucketIndex(seoulNowMinutes(), network.buckets),
   );
 
   const tooltip = $('tooltip');
@@ -284,9 +289,8 @@ async function boot(): Promise<void> {
 
   renderLegend($('legend'), directionMode, threshold, serviceMode);
 
-  // Start at the morning peak: it is the reason to look at this at all.
-  const eightAM = network.buckets.indexOf(480);
-  timeline.setIndex(eightAM >= 0 ? eightAM : 0);
+  // The timeline already opened on the current Seoul half-hour; this used to
+  // jump to the 08:00 peak instead, and would silently win over that.
   repaint();
 
   statusEl.textContent = '';
